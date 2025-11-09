@@ -3,6 +3,22 @@ import argparse
 
 MEMORY_START = 256
 
+PRE_ISSUE_BUFFER_SIZE = 4
+PRE_ALU1_BUFFER_SIZE = 2
+PRE_ALU2_BUFFER_SIZE = 1
+PRE_ALU3_BUFFER_SIZE = 1
+PRE_MEMORY_BUFFER_SIZE = 1
+POST_ALU2_BUFFER_SIZE = 1
+POST_ALU3_BUFFER_SIZE = 1
+POST_MEMORY_BUFFER_SIZE = 1
+
+MAX_FETCHES_PER_CYCLE = 2
+MAX_ISSUES_PER_CYCLE = 3
+MAX_ALU1_ISSUES_PER_CYCLE = 1
+MAX_ALU2_ISSUES_PER_CYCLE = 1
+MAX_ALU3_ISSUES_PER_CYCLE = 1
+
+
 class DissasemblyState(Enum):
     """State variable which denotes whether the disassembly is in instruction or data mode."""
 
@@ -203,21 +219,185 @@ class Disassembler:
 
                 address += 4
 
-        with open("disassembly.txt", "w") as outfile:
-            for line in disassebly_output:
-                outfile.write(line + "\n")
+        # with open("disassembly.txt", "w") as outfile:
+        #     for line in disassebly_output:
+        #         outfile.write(line + "\n")
 
-def ALU1():
-    pass
 
-def ALU2():
-    pass
+class ProcessorPipeline():
 
-def ALU3():
-    pass
+    def __init__(self):
+        self.registers = [0] * 32
+        self.memory = {}
+        self.pc = MEMORY_START
+        self.cycle = 1
 
-def Processor():
-    pass
+        # Buffers
+        self.pre_issue_prev = []
+        self.pre_issue_next = []
+
+        self.alu1_prev = []
+        self.alu1_next = []
+
+        self.alu2_prev = []
+        self.alu2_next = []
+
+        self.alu3_prev = []
+        self.alu3_next = []
+
+        self.memory_prev = []
+        self.memory_next = []
+
+        self.post_memory_prev = []
+        self.post_memory_next = []
+
+        # Stall Status
+        self.fetch_stall_prev = False
+        self.fetch_stall_curr = False
+
+        # Pipeline status
+        self.ended = False
+
+    
+    def instruction_fetch(self):
+
+
+        if self.fetch_stall_prev:
+            pass
+
+        else:
+
+            num_issues = min(PRE_ISSUE_BUFFER_SIZE - len(self.pre_issue_prev), MAX_FETCHES_PER_CYCLE)
+
+            for i in range(num_issues):
+                instruction = self.instructions.get(self.pc)
+                decoded_instruction = instruction_decoder(instruction, self.pc)
+
+                if decoded_instruction["operation"] == Category4Opcode.BREAK:
+                    self.ended = True
+                    break
+
+                elif decoded_instruction["operation"] in [Category1Opcode.BEQ, Category1Opcode.BNE, Category1Opcode.BLT]:
+                    # Branch instructions are not issued
+                    # TODO: Add branch handling
+                    break
+
+                else:
+                    self.pre_issue_next.append(decoded_instruction)
+
+                self.pc += 4
+
+    def instruction_issue(self):
+
+        issue_count = 0
+        alu1_issue_count = 0
+        alu2_issue_count = 0
+        alu3_issue_count = 0
+
+        pop_index = 0
+
+
+
+        while True:
+            if issue_count >= MAX_ISSUES_PER_CYCLE:
+                break
+
+            instruction = self.pre_issue_prev[pop_index]
+
+            # Hazard detection and issue logic
+            # No structural hazards - no speculation - HZ-1
+            # No RAW and WAW hazards with active instructions - HZ-2
+            # No WAW or WAR hazards with two instructions in the same cycle - HZ-3
+            # No WAR hazards with not-issued intructions - HZ-4
+            # For MEM all source register are ready - HZ-5
+            # Load stay until all previous stores? - HZ-6
+            # In order store issue - HZ-7
+
+            if instruction["operation"] in [Category3Opcode.LW, Category1Opcode.SW]:
+                if alu1_issue_count < MAX_ALU1_ISSUES_PER_CYCLE and len(self.alu1_prev) < PRE_ALU1_BUFFER_SIZE:
+                    # TODO: Add hazard detection here
+                    # HZ-1, HZ-2, HZ-3, HZ-4, HZ-5, HZ-6, HZ-7
+                    self.alu1_next.append(instruction)
+                    alu1_issue_count += 1
+                    issue_count += 1
+
+            if instruction["operation"] in [Category2Opcode.ADD, Category2Opcode.SUB, Category3Opcode.ADDI]:
+                if alu2_issue_count < MAX_ALU2_ISSUES_PER_CYCLE and len(self.alu2_next) < PRE_ALU2_BUFFER_SIZE:
+                    # TODO: Add hazard detection here
+                    # HZ-1, HZ-2, HZ-3, HZ-4
+                    self.alu2_next.append(instruction)
+                    alu2_issue_count += 1
+                    issue_count += 1
+
+            if instruction["operation"] in [Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI, Category3Opcode.SLLI, Category3Opcode.SRAI]:
+                if alu3_issue_count < MAX_ALU3_ISSUES_PER_CYCLE and len(self.alu3_next) < PRE_ALU3_BUFFER_SIZE:
+                    # TODO: Add hazard detection here
+                    # HZ-1, HZ-2, HZ-3, HZ-4
+                    self.alu3_next.append(instruction)
+                    alu3_issue_count += 1
+                    issue_count += 1
+
+
+    def alu1_execute(self):
+        pass
+
+    def alu2_execute(self):
+        pass
+
+    def alu3_execute(self):
+        pass
+
+    def memory_access(self):
+        pass
+
+    def write_back(self):
+        pass
+
+            
+
+
+    def process(self, riscv_text: str):
+        with open(riscv_text, "r") as file:
+            instructions = file.readlines()
+
+            self.instructions = {
+                MEMORY_START + i * 4: inst.strip()
+                for i, inst in enumerate(instructions)
+            }
+
+        with open("simulation.txt", "w") as simfile:
+            while True:
+                self.instruction_fetch()
+
+                if self.ended:
+                    break
+
+                self.instruction_issue()
+                self.alu1_execute()
+                self.alu2_execute()
+                self.alu3_execute()
+                self.memory_access()
+                self.write_back()
+
+
+
+                # instruction = instructions.get(self.PC)
+                # decoded_instruction = instruction_decoder(instruction, self.PC)
+
+                # self.execute_instruction(decoded_instruction)
+
+                # # output_state = self.output_state(decoded_instruction)
+
+                # if self.cycle != 1:
+                #     simfile.write("\n")
+
+                # simfile.write(output_state)
+
+                # if decoded_instruction["operation"] == Category4Opcode.BREAK:
+                #     break
+
+                # self.cycle += 1
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -228,10 +408,13 @@ def main():
     disassembler = Disassembler()
     disassembler.disassemble(riscv_instructions)
 
+    memory = disassembler.memory
+    print("Hi")
+
     
 
 
 
 if __name__ == "__main__":
-    pass
+    main()
 
