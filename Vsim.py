@@ -239,14 +239,22 @@ class ProcessorPipeline():
         self.alu1_prev = []
         self.alu1_next = []
 
+        self.memory_prev = []
+        self.memory_next = []
+
         self.alu2_prev = []
         self.alu2_next = []
+
+        self.post_alu2_prev = []
+        self.post_alu2_next = []
 
         self.alu3_prev = []
         self.alu3_next = []
 
-        self.memory_prev = []
-        self.memory_next = []
+        self.post_alu3_prev = []
+        self.post_alu3_next = []
+
+
 
         self.post_memory_prev = []
         self.post_memory_next = []
@@ -339,21 +347,126 @@ class ProcessorPipeline():
 
 
     def alu1_execute(self):
-        pass
+        """Supports Category1Opcode.SW and Category3Opcode.LW instructions."""
+
+        instruction = self.alu1_prev.pop(0)
+
+        if instruction["operation"] == Category3Opcode.LW:
+            memory_address = self.registers[instruction["rs1"]] + instruction["immediate"]
+            instruction["memory_address"] = memory_address
+
+        elif instruction["operation"] == Category1Opcode.SW:
+            memory_address = self.registers[instruction["rs2"]] + instruction["immediate"]
+            instruction["memory_address"] = memory_address
+
+        self.memory_next.append(instruction)
+    
 
     def alu2_execute(self):
-        pass
+        """Supports Category2Opcode.ADD, Category2Opcode.SUB, and Category3Opcode.ADDI instructions."""
+        
+        instruction = self.alu2_prev.pop(0)
+
+        if instruction["operation"] == Category2Opcode.ADD:
+            result = self.registers[instruction["rs1"]] + self.registers[instruction["rs2"]]
+            instruction["result"] = result
+
+        elif instruction["operation"] == Category2Opcode.SUB:
+            result = self.registers[instruction["rs1"]] - self.registers[instruction["rs2"]]
+            instruction["result"] = result
+            
+        elif instruction["operation"] == Category3Opcode.ADDI:
+            result = self.registers[instruction["rs1"]] + instruction["immediate"]
+            instruction["result"] = result
+
+        self.post_alu2_next.append(instruction)
 
     def alu3_execute(self):
-        pass
+        """Supports Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI, Category3Opcode.SLLI, and Category3Opcode.SRAI instructions."""
+        
+        instruction = self.alu3_prev.pop(0)
+
+        if instruction["operation"] == Category2Opcode.AND:
+            result = self.registers[instruction["rs1"]] & self.registers[instruction["rs2"]]
+            instruction["result"] = result
+
+        elif instruction["operation"] == Category2Opcode.OR:
+            result = self.registers[instruction["rs1"]] | self.registers[instruction["rs2"]]
+            instruction["result"] = result
+            
+        elif instruction["operation"] == Category3Opcode.ANDI:
+            result = self.registers[instruction["rs1"]] & instruction["immediate"]
+            instruction["result"] = result
+
+        elif instruction["operation"] == Category3Opcode.ORI:
+            result = self.registers[instruction["rs1"]] | instruction["immediate"]
+            instruction["result"] = result
+
+        elif instruction["operation"] == Category3Opcode.SLLI:
+            result = self.registers[instruction["rs1"]] << instruction["immediate"]
+            instruction["result"] = result
+
+        elif instruction["operation"] == Category3Opcode.SRAI:
+            result = self.registers[instruction["rs1"]] >> instruction["immediate"]
+            instruction["result"] = result
+
+        self.post_alu3_next.append(instruction)
 
     def memory_access(self):
-        pass
+        
+        instruction = self.memory_prev.pop(0)
+        if instruction["operation"] == Category3Opcode.LW:
+            instruction["loaded_value"] = self.memory.get(instruction["memory_address"], 0)
+        elif instruction["operation"] == Category1Opcode.SW:
+            self.memory[instruction["memory_address"]] = self.registers[instruction["rs2"]]
 
     def write_back(self):
-        pass
+        
+        post_mem_instruction = self.post_memory_prev.pop(0)
+
+        if post_mem_instruction["operation"] == Category3Opcode.LW:
+            self.registers[post_mem_instruction["rd"]] = post_mem_instruction["loaded_value"]
+
+        else:
+            post_alu2_instruction = self.post_alu2_prev.pop(0)
+            self.registers[post_alu2_instruction["rd"]] = post_alu2_instruction["result"]
+
+            post_alu3_instruction = self.post_alu3_prev.pop(0)
+            self.registers[post_alu3_instruction["rd"]] = post_alu3_instruction["result"]
 
             
+    def tick(self):
+        """Advance the pipeline by one cycle."""
+        
+        # Update previous cycle buffers with next cycle buffers
+        self.pre_issue_prev = self.pre_issue_next
+        self.pre_issue_next = []
+
+        self.alu1_prev = self.alu1_next
+        self.alu1_next = []
+
+        self.memory_prev = self.memory_next
+        self.memory_next = []
+
+        self.alu2_prev = self.alu2_next
+        self.alu2_next = []
+
+        self.post_alu2_prev = self.post_alu2_next
+        self.post_alu2_next = []
+
+        self.alu3_prev = self.alu3_next
+        self.alu3_next = []
+
+        self.post_alu3_prev = self.post_alu3_next
+        self.post_alu3_next = []
+
+        self.post_memory_prev = self.post_memory_next
+        self.post_memory_next = []
+
+        self.fetch_stall_prev = self.fetch_stall_curr
+        self.fetch_stall_curr = False
+
+        self.cycle += 1
 
 
     def process(self, riscv_text: str):
