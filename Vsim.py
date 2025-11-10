@@ -439,10 +439,10 @@ class ProcessorPipeline():
         """Advance the pipeline by one cycle."""
         
         # Update previous cycle buffers with next cycle buffers
-        self.pre_issue_prev = self.pre_issue_next
+        self.pre_issue_prev.extend(self.pre_issue_next)
         self.pre_issue_next = []
 
-        self.alu1_prev = self.alu1_next
+        self.alu1_prev.extend(self.alu1_next)
         self.alu1_next = []
 
         self.memory_prev = self.memory_next
