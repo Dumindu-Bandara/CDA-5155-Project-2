@@ -237,9 +237,9 @@ class Disassembler:
 
 class ProcessorPipeline():
 
-    def __init__(self):
+    def __init__(self, memory):
         self.registers = [0] * 32
-        self.memory = {}
+        self.memory = memory
         self.pc = MEMORY_START
         self.cycle = 1
 
@@ -346,9 +346,10 @@ class ProcessorPipeline():
         alu3_issue_count = 0
 
         pop_index = 0
+        no_hazard = True # TODO: Add hazard detection logic
 
         while True:
-            if issue_count >= MAX_ISSUES_PER_CYCLE:
+            if issue_count >= MAX_ISSUES_PER_CYCLE or len(self.pre_issue_prev) == 0:
                 break
 
             instruction = self.pre_issue_prev[pop_index]
@@ -363,32 +364,41 @@ class ProcessorPipeline():
             # In order store issue - HZ-7
 
             if instruction["operation"] in [Category3Opcode.LW, Category1Opcode.SW]:
-                if alu1_issue_count < MAX_ALU1_ISSUES_PER_CYCLE and len(self.alu1_prev) < PRE_ALU1_BUFFER_SIZE:
+                if alu1_issue_count < MAX_ALU1_ISSUES_PER_CYCLE and len(self.alu1_prev) < PRE_ALU1_BUFFER_SIZE and no_hazard:
                     # TODO: Add hazard detection here
                     # HZ-1, HZ-2, HZ-3, HZ-4, HZ-5, HZ-6, HZ-7
-                    self.alu1_next.append(instruction)
+                    self.alu1_next.append(self.pre_issue_prev.pop(pop_index))
                     alu1_issue_count += 1
                     issue_count += 1
+                else:
+                    pop_index += 1
 
             if instruction["operation"] in [Category2Opcode.ADD, Category2Opcode.SUB, Category3Opcode.ADDI]:
-                if alu2_issue_count < MAX_ALU2_ISSUES_PER_CYCLE and len(self.alu2_next) < PRE_ALU2_BUFFER_SIZE:
+                if alu2_issue_count < MAX_ALU2_ISSUES_PER_CYCLE and len(self.alu2_next) < PRE_ALU2_BUFFER_SIZE and no_hazard:
                     # TODO: Add hazard detection here
                     # HZ-1, HZ-2, HZ-3, HZ-4
-                    self.alu2_next.append(instruction)
+                    self.alu2_next.append(self.pre_issue_prev.pop(pop_index))
                     alu2_issue_count += 1
                     issue_count += 1
+                else:
+                    pop_index += 1
 
             if instruction["operation"] in [Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI, Category3Opcode.SLLI, Category3Opcode.SRAI]:
-                if alu3_issue_count < MAX_ALU3_ISSUES_PER_CYCLE and len(self.alu3_next) < PRE_ALU3_BUFFER_SIZE:
+                if alu3_issue_count < MAX_ALU3_ISSUES_PER_CYCLE and len(self.alu3_next) < PRE_ALU3_BUFFER_SIZE and no_hazard:
                     # TODO: Add hazard detection here
                     # HZ-1, HZ-2, HZ-3, HZ-4
-                    self.alu3_next.append(instruction)
+                    self.alu3_next.append(self.pre_issue_prev.pop(pop_index))
                     alu3_issue_count += 1
                     issue_count += 1
+                else:
+                    pop_index += 1
 
 
     def alu1_execute(self):
         """Supports Category1Opcode.SW and Category3Opcode.LW instructions."""
+
+        if len(self.alu1_prev) == 0:
+            return
 
         instruction = self.alu1_prev.pop(0)
 
@@ -406,6 +416,9 @@ class ProcessorPipeline():
     def alu2_execute(self):
         """Supports Category2Opcode.ADD, Category2Opcode.SUB, and Category3Opcode.ADDI instructions."""
         
+        if len(self.alu2_prev) == 0:
+            return
+
         instruction = self.alu2_prev.pop(0)
 
         if instruction["operation"] == Category2Opcode.ADD:
@@ -425,6 +438,9 @@ class ProcessorPipeline():
     def alu3_execute(self):
         """Supports Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI, Category3Opcode.SLLI, and Category3Opcode.SRAI instructions."""
         
+        if len(self.alu3_prev) == 0:
+            return
+
         instruction = self.alu3_prev.pop(0)
 
         if instruction["operation"] == Category2Opcode.AND:
@@ -454,6 +470,9 @@ class ProcessorPipeline():
         self.post_alu3_next.append(instruction)
 
     def memory_access(self):
+
+        if len(self.memory_prev) == 0:
+            return
         
         instruction = self.memory_prev.pop(0)
         if instruction["operation"] == Category3Opcode.LW:
@@ -462,18 +481,19 @@ class ProcessorPipeline():
             self.memory[instruction["memory_address"]] = self.registers[instruction["rs2"]]
 
     def write_back(self):
-        
-        post_mem_instruction = self.post_memory_prev.pop(0)
 
-        if post_mem_instruction["operation"] == Category3Opcode.LW:
-            self.registers[post_mem_instruction["rd"]] = post_mem_instruction["loaded_value"]
+        if len(self.post_memory_prev) > 0:
+            post_mem_instruction = self.post_memory_prev.pop(0)
+            if post_mem_instruction["operation"] == Category3Opcode.LW:
+                self.registers[post_mem_instruction["rd"]] = post_mem_instruction["loaded_value"]
 
-        else:
-            post_alu2_instruction = self.post_alu2_prev.pop(0)
-            self.registers[post_alu2_instruction["rd"]] = post_alu2_instruction["result"]
+        elif len(self.post_alu2_prev) >0:
+                post_alu2_instruction = self.post_alu2_prev.pop(0)
+                self.registers[post_alu2_instruction["rd"]] = post_alu2_instruction["result"]
 
-            post_alu3_instruction = self.post_alu3_prev.pop(0)
-            self.registers[post_alu3_instruction["rd"]] = post_alu3_instruction["result"]
+        elif len(self.post_alu3_prev) >0:
+                post_alu3_instruction = self.post_alu3_prev.pop(0)
+                self.registers[post_alu3_instruction["rd"]] = post_alu3_instruction["result"]
 
             
     def tick(self):
@@ -548,6 +568,9 @@ def main():
     disassembler.disassemble(riscv_instructions)
 
     memory = disassembler.memory
+
+    processor = ProcessorPipeline(memory)
+    processor.process(riscv_instructions)
     print("Hi")
 
     
