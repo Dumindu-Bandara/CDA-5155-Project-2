@@ -1,3 +1,14 @@
+"""
+UFID: 61994080
+Name: Dumindu Ashen Bandara Elamure Mudiyanselage
+Course: CDA 5155 - Computer Architecture
+Project 2 - RISC-V Simulator
+Date: 2024-11-11
+
+Academic Honesty Statement:
+On my honor, I have neither given nor received any unauthorized aid on this assignment.
+"""
+
 from enum import Enum
 import argparse
 
@@ -254,8 +265,6 @@ class ProcessorPipeline():
         self.post_alu3_prev = []
         self.post_alu3_next = []
 
-
-
         self.post_memory_prev = []
         self.post_memory_next = []
 
@@ -267,11 +276,33 @@ class ProcessorPipeline():
         self.ended = False
 
     
+    def is_branch_raw_exist(self, operand_1, operand_2):
+
+        buffers = [self.pre_issue_next, self.pre_issue_prev, self.alu1_prev, self.alu2_prev, self.alu3_prev, self.memory_prev, self.post_alu2_prev, self.post_alu3_prev, self.post_memory_prev]
+
+        for buffer in buffers:
+            for instruction in buffer:
+                instruction_dest= instruction.get("rd", None)
+
+                if operand_1 == instruction_dest or operand_2 == instruction_dest:
+                    self.fetch_stall_curr = True
+                    return True
+        else:
+            return False
+
+    
     def instruction_fetch(self):
 
 
         if self.fetch_stall_prev:
-            pass
+            instruction = self.instructions.get(self.pc)
+            decoded_instruction = instruction_decoder(instruction, self.pc)
+            
+            operand_1 = decoded_instruction["rs1"]
+            operand_2 = decoded_instruction["rs2"]
+
+            if self.is_branch_raw_exist(operand_1, operand_2):
+                return
 
         else:
 
@@ -287,13 +318,25 @@ class ProcessorPipeline():
 
                 elif decoded_instruction["operation"] in [Category1Opcode.BEQ, Category1Opcode.BNE, Category1Opcode.BLT]:
                     # Branch instructions are not issued
+                    # Check branch values are processed, else stall the pipeline
                     # TODO: Add branch handling
-                    break
+                    # TODO: Add pc offset
+
+                    operand_1 = decoded_instruction["rs1"]
+                    operand_2 = decoded_instruction["rs2"]
+                    if self.is_branch_raw_exist(operand_1, operand_2):
+                        return
+                    
+
+                elif decoded_instruction["operation"] == Category4Opcode.JAL:
+                    # Write to the register file in the writeback stage. 
+                    decoded_instruction["result"] = self.PC + 4
+                    self.pre_issue_next.append(decoded_instruction)
+                    self.PC += decoded_instruction["immediate"] << 1
 
                 else:
                     self.pre_issue_next.append(decoded_instruction)
-
-                self.pc += 4
+                    self.pc += 4
 
     def instruction_issue(self):
 
@@ -303,8 +346,6 @@ class ProcessorPipeline():
         alu3_issue_count = 0
 
         pop_index = 0
-
-
 
         while True:
             if issue_count >= MAX_ISSUES_PER_CYCLE:
@@ -491,25 +532,10 @@ class ProcessorPipeline():
                 self.alu3_execute()
                 self.memory_access()
                 self.write_back()
+                self.tick()
 
+                # TODO: Add register x0 and overflow handling
 
-
-                # instruction = instructions.get(self.PC)
-                # decoded_instruction = instruction_decoder(instruction, self.PC)
-
-                # self.execute_instruction(decoded_instruction)
-
-                # # output_state = self.output_state(decoded_instruction)
-
-                # if self.cycle != 1:
-                #     simfile.write("\n")
-
-                # simfile.write(output_state)
-
-                # if decoded_instruction["operation"] == Category4Opcode.BREAK:
-                #     break
-
-                # self.cycle += 1
 
 
 def main():
