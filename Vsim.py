@@ -11,6 +11,7 @@ On my honor, I have neither given nor received any unauthorized aid on this assi
 
 from enum import Enum
 import argparse
+import textwrap
 
 MEMORY_START = 256
 
@@ -242,6 +243,8 @@ class ProcessorPipeline():
         self.memory = memory
         self.pc = MEMORY_START
         self.cycle = 1
+        self.fetch_waiting = ""
+        self.fetch_executed = ""
 
         # Buffers
         self.pre_issue_prev = []
@@ -302,7 +305,27 @@ class ProcessorPipeline():
             operand_2 = decoded_instruction["rs2"]
 
             if self.is_branch_raw_exist(operand_1, operand_2):
+                self.fetch_waiting = "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
                 return
+            else:
+                # Add branch executed code
+                self.fetch_executed = "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
+
+                if decoded_instruction["operation"] == Category1Opcode.BEQ:
+                    if self.registers[decoded_instruction["rs1"]] == self.registers[decoded_instruction["rs2"]]:
+                        self.pc += decoded_instruction["immediate"] << 1
+                    else:
+                        self.pc += 4
+                elif decoded_instruction["operation"] == Category1Opcode.BNE:
+                    if self.registers[decoded_instruction["rs1"]] != self.registers[decoded_instruction["rs2"]]:
+                        self.pc += decoded_instruction["immediate"] << 1
+                    else:
+                        self.pc += 4
+                elif decoded_instruction["operation"] == Category1Opcode.BLT:
+                    if self.registers[decoded_instruction["rs1"]] < self.registers[decoded_instruction["rs2"]]:
+                        self.pc += decoded_instruction["immediate"] << 1
+                    else:
+                        self.pc += 4
 
         else:
 
@@ -325,11 +348,33 @@ class ProcessorPipeline():
                     operand_1 = decoded_instruction["rs1"]
                     operand_2 = decoded_instruction["rs2"]
                     if self.is_branch_raw_exist(operand_1, operand_2):
+                        self.fetch_waiting = "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
                         return
-                    
+                    else:
+                        # TODO: Add branch offset and PC update
+                        self.fetch_executed = "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
+
+                        if decoded_instruction["operation"] == Category1Opcode.BEQ:
+                            if self.registers[decoded_instruction["rs1"]] == self.registers[decoded_instruction["rs2"]]:
+                                self.pc += decoded_instruction["immediate"] << 1
+                            else:
+                                self.pc += 4
+                        elif decoded_instruction["operation"] == Category1Opcode.BNE:
+                            if self.registers[decoded_instruction["rs1"]] != self.registers[decoded_instruction["rs2"]]:
+                                self.pc += decoded_instruction["immediate"] << 1
+                            else:
+                                self.pc += 4
+                        elif decoded_instruction["operation"] == Category1Opcode.BLT:
+                            if self.registers[decoded_instruction["rs1"]] < self.registers[decoded_instruction["rs2"]]:
+                                self.pc += decoded_instruction["immediate"] << 1
+                            else:
+                                self.pc += 4
+
+
 
                 elif decoded_instruction["operation"] == Category4Opcode.JAL:
                     # Write to the register file in the writeback stage. 
+                    # NOTE: Does this working correctly with the pipeline?
                     decoded_instruction["result"] = self.PC + 4
                     self.pre_issue_next.append(decoded_instruction)
                     self.PC += decoded_instruction["immediate"] << 1
@@ -337,6 +382,9 @@ class ProcessorPipeline():
                 else:
                     self.pre_issue_next.append(decoded_instruction)
                     self.pc += 4
+
+    def hazard_detection(self, instruction, issue_buffer_index):
+        pass
 
     def instruction_issue(self):
 
@@ -351,47 +399,67 @@ class ProcessorPipeline():
         while True:
             if issue_count >= MAX_ISSUES_PER_CYCLE or len(self.pre_issue_prev) == 0:
                 break
+            
+            if pop_index < len(self.pre_issue_prev):
+                instruction = self.pre_issue_prev[pop_index]
 
-            instruction = self.pre_issue_prev[pop_index]
+                # Hazard detection and issue logic
+                # No structural hazards - no speculation - HZ-1
+                # No RAW and WAW hazards with active instructions - HZ-2
+                # No WAW or WAR hazards with two instructions in the same cycle - HZ-3
+                # No WAR hazards with not-issued intructions - HZ-4
+                # For MEM all source register are ready - HZ-5
+                # Load stay until all previous stores? - HZ-6
+                # In order store issue - HZ-7
 
-            # Hazard detection and issue logic
-            # No structural hazards - no speculation - HZ-1
-            # No RAW and WAW hazards with active instructions - HZ-2
-            # No WAW or WAR hazards with two instructions in the same cycle - HZ-3
-            # No WAR hazards with not-issued intructions - HZ-4
-            # For MEM all source register are ready - HZ-5
-            # Load stay until all previous stores? - HZ-6
-            # In order store issue - HZ-7
+                if instruction["operation"] in [Category3Opcode.LW, Category1Opcode.SW]:
+                    if alu1_issue_count < MAX_ALU1_ISSUES_PER_CYCLE and len(self.alu1_prev) < PRE_ALU1_BUFFER_SIZE and no_hazard:
+                        # TODO: Add hazard detection here
+                        # HZ-1, HZ-2, HZ-3, HZ-4, HZ-5, HZ-6, HZ-7
+                        self.alu1_next.append(self.pre_issue_prev.pop(pop_index))
+                        alu1_issue_count += 1
+                        issue_count += 1
+                    else:
+                        pop_index += 1
 
-            if instruction["operation"] in [Category3Opcode.LW, Category1Opcode.SW]:
-                if alu1_issue_count < MAX_ALU1_ISSUES_PER_CYCLE and len(self.alu1_prev) < PRE_ALU1_BUFFER_SIZE and no_hazard:
-                    # TODO: Add hazard detection here
-                    # HZ-1, HZ-2, HZ-3, HZ-4, HZ-5, HZ-6, HZ-7
-                    self.alu1_next.append(self.pre_issue_prev.pop(pop_index))
-                    alu1_issue_count += 1
-                    issue_count += 1
-                else:
-                    pop_index += 1
+                if instruction["operation"] in [Category2Opcode.ADD, Category2Opcode.SUB, Category3Opcode.ADDI]:
+                    if alu2_issue_count < MAX_ALU2_ISSUES_PER_CYCLE and len(self.alu2_prev) < PRE_ALU2_BUFFER_SIZE and no_hazard:
+                        # TODO: Add hazard detection here
+                        # HZ-1, HZ-2, HZ-3, HZ-4
+                        self.alu2_next.append(self.pre_issue_prev.pop(pop_index))
+                        alu2_issue_count += 1
+                        issue_count += 1
+                    else:
+                        pop_index += 1
 
-            if instruction["operation"] in [Category2Opcode.ADD, Category2Opcode.SUB, Category3Opcode.ADDI]:
-                if alu2_issue_count < MAX_ALU2_ISSUES_PER_CYCLE and len(self.alu2_next) < PRE_ALU2_BUFFER_SIZE and no_hazard:
-                    # TODO: Add hazard detection here
-                    # HZ-1, HZ-2, HZ-3, HZ-4
-                    self.alu2_next.append(self.pre_issue_prev.pop(pop_index))
-                    alu2_issue_count += 1
-                    issue_count += 1
-                else:
-                    pop_index += 1
+                if instruction["operation"] in [Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI, Category3Opcode.SLLI, Category3Opcode.SRAI]:
+                    if alu3_issue_count < MAX_ALU3_ISSUES_PER_CYCLE and len(self.alu3_prev) < PRE_ALU3_BUFFER_SIZE and no_hazard:
+                        # TODO: Add hazard detection here
+                        # HZ-1, HZ-2, HZ-3, HZ-4
+                        self.alu3_next.append(self.pre_issue_prev.pop(pop_index))
+                        alu3_issue_count += 1
+                        issue_count += 1
+                    else:
+                        pop_index += 1
 
-            if instruction["operation"] in [Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI, Category3Opcode.SLLI, Category3Opcode.SRAI]:
-                if alu3_issue_count < MAX_ALU3_ISSUES_PER_CYCLE and len(self.alu3_next) < PRE_ALU3_BUFFER_SIZE and no_hazard:
-                    # TODO: Add hazard detection here
-                    # HZ-1, HZ-2, HZ-3, HZ-4
-                    self.alu3_next.append(self.pre_issue_prev.pop(pop_index))
-                    alu3_issue_count += 1
-                    issue_count += 1
-                else:
-                    pop_index += 1
+            else:
+                break
+
+        # print("--------- Issue Cycle Debug ---------")
+        # print(f"Issued Instructions: {issue_count}")
+        # print(f"ALU1 Issues: {alu1_issue_count}")
+        # print(f"ALU2 Issues: {alu2_issue_count}")
+        # print(f"ALU3 Issues: {alu3_issue_count}")
+        # print(f"Fetch Waiting: {self.fetch_waiting}")
+        # print(f"Fetch Executed: {self.fetch_executed}")
+        # print(f"ALU1 Next: {self.alu1_next}")
+        # print(f"ALU1_Prev: {self.alu1_prev}")
+        # print(f"ALU2 Next: {self.alu2_next}")
+        # print(f"ALU2_Prev: {self.alu2_prev}")
+        # print(f"ALU3 Next: {self.alu3_next}")
+        # print(f"ALU3_Prev: {self.alu3_prev}")
+        # print("-------------------------------------")
+
 
 
     def alu1_execute(self):
@@ -495,6 +563,20 @@ class ProcessorPipeline():
                 post_alu3_instruction = self.post_alu3_prev.pop(0)
                 self.registers[post_alu3_instruction["rd"]] = post_alu3_instruction["result"]
 
+    def handle_overflow(self) -> None:
+        """Handle overflow for register values to ensure they stay within 32-bit signed integer range."""
+
+        for i in range(len(self.registers)):
+            if self.registers[i] < -(2**31):
+                self.registers[i] = (
+                    (self.registers[i] + 2**31) % 2**32
+                ) - 2**31
+            elif self.registers[i] > 2**31 - 1:
+                self.registers[i] = (
+                    (self.registers[i] - 2**31) % 2**32
+                ) - 2**31
+        return self.registers
+
             
     def tick(self):
         """Advance the pipeline by one cycle."""
@@ -527,8 +609,94 @@ class ProcessorPipeline():
         self.fetch_stall_prev = self.fetch_stall_curr
         self.fetch_stall_curr = False
 
-        self.cycle += 1
+        self.registers[0] = 0  # Ensure register x0 is always 0
+        self.handle_overflow() # Handle overflow for registers
 
+
+
+        
+    def output_state(self):
+        memory_print = ""
+        mem_addresses = sorted(self.memory.keys())
+
+        if len(mem_addresses) > 0:
+            mem_addresses_min = mem_addresses[0]
+            mem_addresses_max = mem_addresses[-1]
+
+            for i in range(mem_addresses_min, mem_addresses_max + 1, 32):
+                row = [
+                    self.memory.get(addr, 0)
+                    for addr in range(i, i + 32, 4)
+                    if addr <= mem_addresses_max
+                ]
+
+                memory_print += f"{i}:\t" + "\t".join([str(val) for val in row]) + "\n"
+        else:
+            memory_print = ""
+
+        pre_issue = ["[" + instruction["assembly"].split("\t")[-1] + "]" for instruction in self.pre_issue_prev]
+        pre_alu1 = ["[" + instruction["assembly"].split("\t")[-1] + "]" for instruction in self.alu1_prev]
+        pre_mem = ["[" + instruction["assembly"].split("\t")[-1] + "]" for instruction in self.memory_prev]
+        post_mem = ["[" + instruction["assembly"].split("\t")[-1] + "]" for instruction in self.post_memory_prev]
+        pre_alu2 = ["[" + instruction["assembly"].split("\t")[-1] + "]" for instruction in self.alu2_prev]
+        post_alu2 = ["[" + instruction["assembly"].split("\t")[-1] + "]" for instruction in self.post_alu2_prev]
+        pre_alu3 = ["[" + instruction["assembly"].split("\t")[-1] + "]" for instruction in self.alu3_prev]
+        post_alu3 = ["[" + instruction["assembly"].split("\t")[-1] + "]" for instruction in self.post_alu3_prev]
+
+        output = (
+            textwrap.dedent("""
+            {}
+            Cycle {}:
+            IF Unit:
+            \tWaiting: {}
+            \tExecuted: {}
+            Pre-Issue Queue:
+            \tEntry 0: {}
+            \tEntry 1: {}
+            \tEntry 2: {}
+            \tEntry 3: {}
+            Pre-ALU1 Queue:
+            \tEntry 0: {}
+            \tEntry 1: {}
+            Pre-MEM Queue: {}
+            Post-MEM Queue: {}
+            Pre-ALU2 Queue: {}
+            Post-ALU2 Queue: {}
+            Pre-ALU3 Queue: {}
+            Post-ALU3 Queue: {}
+                            
+            Registers
+            x00:\t{}
+            x08:\t{}
+            x16:\t{}
+            x24:\t{}
+            Data
+        """).format(
+                "-" * 20,
+                self.cycle,
+                self.fetch_waiting, # IF Waiting
+                self.fetch_executed, # IF Executed
+                pre_issue[0] if len(pre_issue)>0 else "", # Pre-Issue 0
+                pre_issue[1] if len(pre_issue)>1 else "", # Pre-Issue 1
+                pre_issue[2] if len(pre_issue)>2 else "", # Pre-Issue 2
+                pre_issue[3] if len(pre_issue)>3 else "", # Pre-Issue 3
+                pre_alu1[0] if len(pre_alu1)>0 else "", # Pre-ALU1 0
+                pre_alu1[1] if len(pre_alu1)>1 else "", # Pre-ALU1 1
+                pre_mem[0] if len(pre_mem)>0 else "", # Pre-MEM
+                post_mem[0] if len(post_mem)>0 else "", # Post-MEM
+                pre_alu2[0] if len(pre_alu2)>0 else "", # Pre-ALU2
+                post_alu2[0] if len(post_alu2)>0 else "", # Post-ALU2
+                pre_alu3[0] if len(pre_alu3)>0 else "", # Pre-ALU3
+                post_alu3[0] if len(post_alu3)>0 else "", # Post-ALU3
+                "\t".join(str(self.registers[i]) for i in range(0, 8)),
+                "\t".join(str(self.registers[i]) for i in range(8, 16)),
+                "\t".join(str(self.registers[i]) for i in range(16, 24)),
+                "\t".join(str(self.registers[i]) for i in range(24, 32)),
+            )
+            + memory_print
+        )
+
+        print(output)
 
     def process(self, riscv_text: str):
         with open(riscv_text, "r") as file:
@@ -541,6 +709,9 @@ class ProcessorPipeline():
 
         with open("simulation.txt", "w") as simfile:
             while True:
+
+                self.fetch_waiting = ""
+                self.fetch_executed = ""
                 self.instruction_fetch()
 
                 if self.ended:
@@ -553,6 +724,9 @@ class ProcessorPipeline():
                 self.memory_access()
                 self.write_back()
                 self.tick()
+                self.output_state()
+
+                self.cycle += 1
 
                 # TODO: Add register x0 and overflow handling
 
