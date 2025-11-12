@@ -70,7 +70,7 @@ class Category3Opcode(Enum):
     ADDI = "00000"
     ANDI = "00001"
     ORI = "00010"
-    SLLI = "00011"
+    SLL = "00011"
     SRAI = "00100"
     LW = "00101"
 
@@ -151,7 +151,7 @@ def instruction_decoder(instruction: str, address: int) -> dict[str, int | str |
         output_dict["rd"] = int(instruction[20:25], 2)
         output_dict["rs1"] = int(instruction[12:17], 2)
 
-        if opcode in [Category3Opcode.SLLI.value, Category3Opcode.SRAI.value]:
+        if opcode in [Category3Opcode.SLL.value, Category3Opcode.SRAI.value]:
             immediate = instruction[7:12]
             output_dict["immediate"] = int(immediate, 2)
         else:
@@ -322,6 +322,9 @@ class ProcessorPipeline():
                         self.pc += decoded_instruction["immediate"] << 1
                     else:
                         self.pc += 4
+                elif decoded_instruction["operation"] == Category4Opcode.BREAK:
+                    self.ended = True
+                    return
 
         else:
 
@@ -333,7 +336,7 @@ class ProcessorPipeline():
 
                 if decoded_instruction["operation"] == Category4Opcode.BREAK:
                     self.ended = True
-                    break
+                    return
 
                 elif decoded_instruction["operation"] in [Category1Opcode.BEQ, Category1Opcode.BNE, Category1Opcode.BLT]:
 
@@ -350,16 +353,19 @@ class ProcessorPipeline():
                                 self.pc += decoded_instruction["immediate"] << 1
                             else:
                                 self.pc += 4
+                            return
                         elif decoded_instruction["operation"] == Category1Opcode.BNE:
                             if self.registers[decoded_instruction["rs1"]] != self.registers[decoded_instruction["rs2"]]:
                                 self.pc += decoded_instruction["immediate"] << 1
                             else:
                                 self.pc += 4
+                            return
                         elif decoded_instruction["operation"] == Category1Opcode.BLT:
                             if self.registers[decoded_instruction["rs1"]] < self.registers[decoded_instruction["rs2"]]:
                                 self.pc += decoded_instruction["immediate"] << 1
                             else:
                                 self.pc += 4
+                            return
 
 
 
@@ -370,6 +376,7 @@ class ProcessorPipeline():
                     self.registers[decoded_instruction["rd"]] = self.pc + 4
                     self.pc += decoded_instruction["immediate"] << 1
                     self.fetch_executed = "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
+                    return
 
                 else:
                     self.pre_issue_next.append(decoded_instruction)
@@ -564,7 +571,7 @@ class ProcessorPipeline():
         # Types: [Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI, Category3Opcode.SLLI, Category3Opcode.SRAI]
         # HZ-1, HZ-2, HZ-3, HZ-4
 
-        if instruction["operation"] in [Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI, Category3Opcode.SLLI, Category3Opcode.SRAI]:
+        if instruction["operation"] in [Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI, Category3Opcode.SLL, Category3Opcode.SRAI]:
 
                 operand_1 = instruction.get("rs1", None)
                 operand_2 = instruction.get("rs2", None)
@@ -651,7 +658,7 @@ class ProcessorPipeline():
                     else:
                         pop_index += 1
 
-                if instruction["operation"] in [Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI, Category3Opcode.SLLI, Category3Opcode.SRAI]:
+                if instruction["operation"] in [Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI, Category3Opcode.SLL, Category3Opcode.SRAI]:
                     if alu3_issue_count < MAX_ALU3_ISSUES_PER_CYCLE and len(self.alu3_prev) < PRE_ALU3_BUFFER_SIZE:
                         # TODO: Add hazard detection here
                         # HZ-1, HZ-2, HZ-3, HZ-4
@@ -746,7 +753,7 @@ class ProcessorPipeline():
             result = self.registers[instruction["rs1"]] | instruction["immediate"]
             instruction["result"] = result
 
-        elif instruction["operation"] == Category3Opcode.SLLI:
+        elif instruction["operation"] == Category3Opcode.SLL:
             result = self.registers[instruction["rs1"]] << instruction["immediate"]
             instruction["result"] = result
 
@@ -766,7 +773,7 @@ class ProcessorPipeline():
             instruction["loaded_value"] = self.memory.get(instruction["memory_address"], 0)
             self.post_memory_next.append(instruction)
         elif instruction["operation"] == Category1Opcode.SW:
-            self.memory[instruction["memory_address"]] = self.registers[instruction["rs2"]]
+            self.memory[instruction["memory_address"]] = self.registers[instruction["rs1"]]
 
     def write_back(self):
 
@@ -866,7 +873,7 @@ class ProcessorPipeline():
         output = (
             textwrap.dedent("""
             {}
-            Cycle {}:
+            Cycle {}:\n
             IF Unit:
             \tWaiting: {}
             \tExecuted: {}
@@ -916,7 +923,7 @@ class ProcessorPipeline():
             + memory_print
         )
 
-        print(output)
+        return output
 
     def process(self, riscv_text: str):
         with open(riscv_text, "r") as file:
@@ -935,7 +942,8 @@ class ProcessorPipeline():
                 self.instruction_fetch()
 
                 if self.ended:
-                    self.output_state()
+                    cycle_sim_output = self.output_state()
+                    simfile.write(cycle_sim_output[1:])
                     break
 
                 self.instruction_issue()
@@ -945,7 +953,9 @@ class ProcessorPipeline():
                 self.memory_access()
                 self.write_back()
                 self.tick()
-                self.output_state()
+
+                cycle_sim_output = self.output_state()
+                simfile.write(cycle_sim_output[1:])
 
                 self.cycle += 1
 
