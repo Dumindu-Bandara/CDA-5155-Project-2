@@ -235,6 +235,12 @@ class Disassembler:
 class ProcessorPipeline():
 
     def __init__(self, memory):
+        """Initialize the processor pipeline with registers, memory, and buffers.
+        
+        Args:
+            memory (dict): The memory dictionary containing data.
+        """
+
         self.registers = [0] * 32
         self.memory = memory
         self.pc = MEMORY_START
@@ -276,6 +282,14 @@ class ProcessorPipeline():
 
     
     def is_branch_raw_exist(self, operand_1, operand_2):
+        """Check for RAW hazards for branch instructions. sets fetch_stall_curr if hazard exists.
+        
+        Args:
+            operand_1 (int): The first source register.
+            operand_2 (int): The second source register.
+        Returns:
+            bool: True if a RAW hazard exists, False otherwise.
+        """
 
         buffers = [self.pre_issue_next, self.pre_issue_prev, self.alu1_prev, self.alu2_prev, self.alu3_prev, self.memory_prev, self.post_alu2_prev, self.post_alu3_prev, self.post_memory_prev]
 
@@ -291,6 +305,7 @@ class ProcessorPipeline():
 
     
     def instruction_fetch(self):
+        """Fetch instructions from memory and handle branch instructions with hazard detection."""
 
 
         if self.fetch_stall_prev:
@@ -372,9 +387,6 @@ class ProcessorPipeline():
 
 
                 elif decoded_instruction["operation"] == Category4Opcode.JAL:
-                    # Write to the register file in the writeback stage. 
-                    # NOTE: Does this working correctly with the pipeline?
-                    # decoded_instruction["result"] = self.pc + 4
                     self.registers[decoded_instruction["rd"]] = self.pc + 4
                     self.pc += decoded_instruction["immediate"] << 1
                     self.fetch_executed = "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
@@ -385,6 +397,7 @@ class ProcessorPipeline():
                     self.pc += 4
 
     def hazard_detection(self, instruction, issue_buffer_index):
+        """Detect hazards for instruction issue. Returns True if a hazard exists, False otherwise."""
         # Hazard detection and issue logic
         # No structural hazards - no speculation - HZ-1
         # No RAW and WAW hazards with active instructions - HZ-2
@@ -393,13 +406,6 @@ class ProcessorPipeline():
         # For MEM all source register are ready - HZ-5
         # Load stay until all previous stores? - HZ-6
         # In order store issue - HZ-7
-
-        # Types: [Category3Opcode.LW, Category1Opcode.SW] 
-        # HZ-1, HZ-2, HZ-3, HZ-4, HZ-5, HZ-6, HZ-7
-
-        # operand_1 = instruction.get("rs1", None)
-        # operand_2 = instruction.get("rs2", None)
-        # destination = instruction.get("rd", None) 
 
         earlier_not_issued = self.pre_issue_prev[:issue_buffer_index]
 
@@ -410,11 +416,6 @@ class ProcessorPipeline():
         
 
         if instruction["operation"] in [Category3Opcode.LW, Category1Opcode.SW]:
-            # HZ-1 - Done
-  
-            # LW rd, rs1, immediate , rd <- MEM[rs1 + immediate]
-            # SW rs1, rs2, immediate  , MEM[rs2 + immediate] <- rs1
-
             if instruction["operation"] == Category3Opcode.LW:
                 
                 operand_1 = instruction.get("rs1", None)
@@ -459,14 +460,6 @@ class ProcessorPipeline():
                     if destination == not_issued_operand_1 or destination == not_issued_operand_2:
                         return True
 
-                # # Check all sources are ready #TODO: Do I need this? 
-                # for buffer in active_instruction_buffers:
-                #     for active_instruction in buffer:
-                #         active_dest = active_instruction.get("rd", None)
-
-                #         if operand_1 == active_dest or operand_2 == active_dest:
-                #             return True
-
                 # Load stay until all previous stores # NOTE: Is this correct?
                 for not_issued_instruction in earlier_not_issued:
                     if not_issued_instruction["operation"] == Category1Opcode.SW:
@@ -485,37 +478,6 @@ class ProcessorPipeline():
 
                         if operand_1 == active_dest or operand_2 == active_dest:
                             return True
-
-                # # Check WAW for active instructions # NOTE: This is extreme but let's see
-                # for buffer in active_instruction_buffers:
-                #     for active_instruction in buffer:
-                #         active_dest = active_instruction.get("rd", None)
-                #         if active_dest == destination:
-                #             return True
-
-                # # Check WAW for same cycle issues
-                # for buffer in same_cycle_issue_buffers:
-                #     for same_cycle_instruction in buffer:
-                #         same_cycle_dest = same_cycle_instruction.get("rd", None)
-                #         if same_cycle_dest == destination:
-                #             return True
-
-                # # Check WAR for same cycle issues
-                # for buffer in same_cycle_issue_buffers:
-                #     for same_cycle_instruction in buffer:
-                #         same_cycle_operand_1 = same_cycle_instruction.get("rs1", None)
-                #         same_cycle_operand_2 = same_cycle_instruction.get("rs2", None)
-
-                #         if destination == same_cycle_operand_1 or destination == same_cycle_operand_2:
-                #             return True
-
-                # # Check WAR for not issued instructions
-                # for not_issued_instruction in earlier_not_issued:
-                #     not_issued_operand_1 = not_issued_instruction.get("rs1", None)
-                #     not_issued_operand_2 = not_issued_instruction.get("rs2", None)
-
-                #     if destination == not_issued_operand_1 or destination == not_issued_operand_2:
-                #         return True
                     
                 # TODO: Memory check for all operands of previous cycle is not considered
 
@@ -524,8 +486,6 @@ class ProcessorPipeline():
                     if not_issued_instruction["operation"] == Category1Opcode.SW:
                         return True
 
-        # Types: [Category2Opcode.ADD, Category2Opcode.SUB, Category3Opcode.ADDI]
-        # HZ-1, HZ-2, HZ-3, HZ-4
         if instruction["operation"] in [Category2Opcode.ADD, Category2Opcode.SUB, Category3Opcode.ADDI]:
                 # Check RAW for active instructions
                 operand_1 = instruction.get("rs1", None)
@@ -569,9 +529,6 @@ class ProcessorPipeline():
 
                     if (destination is not None and destination == not_issued_operand_1) or (destination is not None and destination == not_issued_operand_2):
                         return True
-
-        # Types: [Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI, Category3Opcode.SLLI, Category3Opcode.SRAI]
-        # HZ-1, HZ-2, HZ-3, HZ-4
 
         if instruction["operation"] in [Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI, Category3Opcode.SLL, Category3Opcode.SRAI]:
 
@@ -620,6 +577,7 @@ class ProcessorPipeline():
                         return True
 
     def instruction_issue(self):
+        """Issue instructions from the pre-issue buffer to the appropriate ALU buffers with hazard detection."""
 
         issue_count = 0
         alu1_issue_count = 0
@@ -642,8 +600,6 @@ class ProcessorPipeline():
 
                 if instruction["operation"] in [Category3Opcode.LW, Category1Opcode.SW]:
                     if alu1_issue_count < MAX_ALU1_ISSUES_PER_CYCLE and len(self.alu1_prev) < PRE_ALU1_BUFFER_SIZE:
-                        # TODO: Add hazard detection here
-                        # HZ-1, HZ-2, HZ-3, HZ-4, HZ-5, HZ-6, HZ-7
                         self.alu1_next.append(self.pre_issue_prev.pop(pop_index))
                         alu1_issue_count += 1
                         issue_count += 1
@@ -652,8 +608,6 @@ class ProcessorPipeline():
 
                 if instruction["operation"] in [Category2Opcode.ADD, Category2Opcode.SUB, Category3Opcode.ADDI]:
                     if alu2_issue_count < MAX_ALU2_ISSUES_PER_CYCLE and len(self.alu2_prev) < PRE_ALU2_BUFFER_SIZE:
-                        # TODO: Add hazard detection here
-                        # HZ-1, HZ-2, HZ-3, HZ-4
                         self.alu2_next.append(self.pre_issue_prev.pop(pop_index))
                         alu2_issue_count += 1
                         issue_count += 1
@@ -662,8 +616,6 @@ class ProcessorPipeline():
 
                 if instruction["operation"] in [Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI, Category3Opcode.SLL, Category3Opcode.SRAI]:
                     if alu3_issue_count < MAX_ALU3_ISSUES_PER_CYCLE and len(self.alu3_prev) < PRE_ALU3_BUFFER_SIZE:
-                        # TODO: Add hazard detection here
-                        # HZ-1, HZ-2, HZ-3, HZ-4
                         self.alu3_next.append(self.pre_issue_prev.pop(pop_index))
                         alu3_issue_count += 1
                         issue_count += 1
@@ -778,6 +730,7 @@ class ProcessorPipeline():
             self.memory[instruction["memory_address"]] = self.registers[instruction["rs1"]]
 
     def write_back(self):
+        """Write back results to registers from post-memory, post-ALU2, and post-ALU3 buffers."""
 
         if len(self.post_memory_prev) > 0:
             post_mem_instruction = self.post_memory_prev.pop(0)
@@ -960,9 +913,6 @@ class ProcessorPipeline():
                 simfile.write(cycle_sim_output[1:])
 
                 self.cycle += 1
-
-                # TODO: Add register x0 and overflow handling
-
 
 
 def main():
