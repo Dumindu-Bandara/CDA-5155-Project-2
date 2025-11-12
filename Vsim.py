@@ -3,7 +3,7 @@ UFID: 61994080
 Name: Dumindu Ashen Bandara Elamure Mudiyanselage
 Course: CDA 5155 - Computer Architecture
 Project 2 - RISC-V Simulator
-Date: 2024-11-11
+Date: 2024-11-12
 
 Academic Honesty Statement:
 On my honor, I have neither given nor received any unauthorized aid on this assignment.
@@ -36,6 +36,7 @@ class DissasemblyState(Enum):
 
     INSTRUCTION = 1
     DATA = 2
+
 
 class InstructionCategory(Enum):
     """Enumeration for instruction categories."""
@@ -80,8 +81,6 @@ class Category4Opcode(Enum):
 
     JAL = "00000"
     BREAK = "11111"
-
-
 
 
 def twos_complement(bin_str: str) -> int:
@@ -194,6 +193,7 @@ def instruction_decoder(instruction: str, address: int) -> dict[str, int | str |
 
     return output_dict
 
+
 class Disassembler:
     """Class to handle disassembly of RISC-V instructions and data."""
 
@@ -232,11 +232,10 @@ class Disassembler:
                 address += 4
 
 
-class ProcessorPipeline():
-
+class ProcessorPipeline:
     def __init__(self, memory):
         """Initialize the processor pipeline with registers, memory, and buffers.
-        
+
         Args:
             memory (dict): The memory dictionary containing data.
         """
@@ -280,10 +279,9 @@ class ProcessorPipeline():
         # Pipeline status
         self.ended = False
 
-    
     def is_branch_raw_exist(self, operand_1, operand_2):
         """Check for RAW hazards for branch instructions. sets fetch_stall_curr if hazard exists.
-        
+
         Args:
             operand_1 (int): The first source register.
             operand_2 (int): The second source register.
@@ -291,11 +289,21 @@ class ProcessorPipeline():
             bool: True if a RAW hazard exists, False otherwise.
         """
 
-        buffers = [self.pre_issue_next, self.pre_issue_prev, self.alu1_prev, self.alu2_prev, self.alu3_prev, self.memory_prev, self.post_alu2_prev, self.post_alu3_prev, self.post_memory_prev]
+        buffers = [
+            self.pre_issue_next,
+            self.pre_issue_prev,
+            self.alu1_prev,
+            self.alu2_prev,
+            self.alu3_prev,
+            self.memory_prev,
+            self.post_alu2_prev,
+            self.post_alu3_prev,
+            self.post_memory_prev,
+        ]
 
         for buffer in buffers:
             for instruction in buffer:
-                instruction_dest= instruction.get("rd", None)
+                instruction_dest = instruction.get("rd", None)
 
                 if operand_1 == instruction_dest or operand_2 == instruction_dest:
                     self.fetch_stall_curr = True
@@ -303,93 +311,125 @@ class ProcessorPipeline():
         else:
             return False
 
-    
     def instruction_fetch(self):
         """Fetch instructions from memory and handle branch instructions with hazard detection."""
-
 
         if self.fetch_stall_prev:
             instruction = self.instructions.get(self.pc)
             decoded_instruction = instruction_decoder(instruction, self.pc)
-            
+
             operand_1 = decoded_instruction["rs1"]
             operand_2 = decoded_instruction["rs2"]
 
             if self.is_branch_raw_exist(operand_1, operand_2):
-                self.fetch_waiting = "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
+                self.fetch_waiting = (
+                    "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
+                )
                 return
             else:
                 # Add branch executed code
-                self.fetch_executed = "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
+                self.fetch_executed = (
+                    "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
+                )
 
                 if decoded_instruction["operation"] == Category1Opcode.BEQ:
-                    if self.registers[decoded_instruction["rs1"]] == self.registers[decoded_instruction["rs2"]]:
+                    if (
+                        self.registers[decoded_instruction["rs1"]]
+                        == self.registers[decoded_instruction["rs2"]]
+                    ):
                         self.pc += decoded_instruction["immediate"] << 1
                     else:
                         self.pc += 4
                 elif decoded_instruction["operation"] == Category1Opcode.BNE:
-                    if self.registers[decoded_instruction["rs1"]] != self.registers[decoded_instruction["rs2"]]:
+                    if (
+                        self.registers[decoded_instruction["rs1"]]
+                        != self.registers[decoded_instruction["rs2"]]
+                    ):
                         self.pc += decoded_instruction["immediate"] << 1
                     else:
                         self.pc += 4
                 elif decoded_instruction["operation"] == Category1Opcode.BLT:
-                    if self.registers[decoded_instruction["rs1"]] < self.registers[decoded_instruction["rs2"]]:
+                    if (
+                        self.registers[decoded_instruction["rs1"]]
+                        < self.registers[decoded_instruction["rs2"]]
+                    ):
                         self.pc += decoded_instruction["immediate"] << 1
                     else:
                         self.pc += 4
                 elif decoded_instruction["operation"] == Category4Opcode.BREAK:
-                    self.fetch_executed = "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
+                    self.fetch_executed = (
+                        "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
+                    )
                     self.ended = True
                     return
 
         else:
-
-            num_issues = min(PRE_ISSUE_BUFFER_SIZE - len(self.pre_issue_prev), MAX_FETCHES_PER_CYCLE)
+            num_issues = min(
+                PRE_ISSUE_BUFFER_SIZE - len(self.pre_issue_prev), MAX_FETCHES_PER_CYCLE
+            )
 
             for i in range(num_issues):
                 instruction = self.instructions.get(self.pc)
                 decoded_instruction = instruction_decoder(instruction, self.pc)
 
                 if decoded_instruction["operation"] == Category4Opcode.BREAK:
-                    self.fetch_executed = "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
+                    self.fetch_executed = (
+                        "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
+                    )
                     self.ended = True
                     return
 
-                elif decoded_instruction["operation"] in [Category1Opcode.BEQ, Category1Opcode.BNE, Category1Opcode.BLT]:
-
+                elif decoded_instruction["operation"] in [
+                    Category1Opcode.BEQ,
+                    Category1Opcode.BNE,
+                    Category1Opcode.BLT,
+                ]:
                     operand_1 = decoded_instruction["rs1"]
                     operand_2 = decoded_instruction["rs2"]
                     if self.is_branch_raw_exist(operand_1, operand_2):
-                        self.fetch_waiting = "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
+                        self.fetch_waiting = (
+                            "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
+                        )
                         return
                     else:
-                        self.fetch_executed = "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
+                        self.fetch_executed = (
+                            "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
+                        )
 
                         if decoded_instruction["operation"] == Category1Opcode.BEQ:
-                            if self.registers[decoded_instruction["rs1"]] == self.registers[decoded_instruction["rs2"]]:
+                            if (
+                                self.registers[decoded_instruction["rs1"]]
+                                == self.registers[decoded_instruction["rs2"]]
+                            ):
                                 self.pc += decoded_instruction["immediate"] << 1
                             else:
                                 self.pc += 4
                             return
                         elif decoded_instruction["operation"] == Category1Opcode.BNE:
-                            if self.registers[decoded_instruction["rs1"]] != self.registers[decoded_instruction["rs2"]]:
+                            if (
+                                self.registers[decoded_instruction["rs1"]]
+                                != self.registers[decoded_instruction["rs2"]]
+                            ):
                                 self.pc += decoded_instruction["immediate"] << 1
                             else:
                                 self.pc += 4
                             return
                         elif decoded_instruction["operation"] == Category1Opcode.BLT:
-                            if self.registers[decoded_instruction["rs1"]] < self.registers[decoded_instruction["rs2"]]:
+                            if (
+                                self.registers[decoded_instruction["rs1"]]
+                                < self.registers[decoded_instruction["rs2"]]
+                            ):
                                 self.pc += decoded_instruction["immediate"] << 1
                             else:
                                 self.pc += 4
                             return
 
-
-
                 elif decoded_instruction["operation"] == Category4Opcode.JAL:
                     self.registers[decoded_instruction["rd"]] = self.pc + 4
                     self.pc += decoded_instruction["immediate"] << 1
-                    self.fetch_executed = "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
+                    self.fetch_executed = (
+                        "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
+                    )
                     return
 
                 else:
@@ -409,15 +449,24 @@ class ProcessorPipeline():
 
         earlier_not_issued = self.pre_issue_prev[:issue_buffer_index]
 
-        active_instruction_buffers = [self.alu1_prev, self.alu1_next, self.alu2_prev, self.alu2_next, self.alu3_prev, self.alu3_next, self.memory_prev, self.post_alu2_prev, self.post_alu3_prev, self.post_memory_prev]
+        active_instruction_buffers = [
+            self.alu1_prev,
+            self.alu1_next,
+            self.alu2_prev,
+            self.alu2_next,
+            self.alu3_prev,
+            self.alu3_next,
+            self.memory_prev,
+            self.post_alu2_prev,
+            self.post_alu3_prev,
+            self.post_memory_prev,
+        ]
         active_instruction_buffers = active_instruction_buffers + [earlier_not_issued]
 
         same_cycle_issue_buffers = [self.alu1_next, self.alu2_next, self.alu3_next]
-        
 
         if instruction["operation"] in [Category3Opcode.LW, Category1Opcode.SW]:
             if instruction["operation"] == Category3Opcode.LW:
-                
                 operand_1 = instruction.get("rs1", None)
                 destination = instruction.get("rd", None)
 
@@ -449,7 +498,10 @@ class ProcessorPipeline():
                         same_cycle_operand_1 = same_cycle_instruction.get("rs1", None)
                         same_cycle_operand_2 = same_cycle_instruction.get("rs2", None)
 
-                        if destination == same_cycle_operand_1 or destination == same_cycle_operand_2:
+                        if (
+                            destination == same_cycle_operand_1
+                            or destination == same_cycle_operand_2
+                        ):
                             return True
 
                 # Check WAR for not issued instructions
@@ -457,20 +509,21 @@ class ProcessorPipeline():
                     not_issued_operand_1 = not_issued_instruction.get("rs1", None)
                     not_issued_operand_2 = not_issued_instruction.get("rs2", None)
 
-                    if destination == not_issued_operand_1 or destination == not_issued_operand_2:
+                    if (
+                        destination == not_issued_operand_1
+                        or destination == not_issued_operand_2
+                    ):
                         return True
 
-                # Load stay until all previous stores # NOTE: Is this correct?
+                # Load stay until all previous stores
                 for not_issued_instruction in earlier_not_issued:
                     if not_issued_instruction["operation"] == Category1Opcode.SW:
                         return True
-
 
             elif instruction["operation"] == Category1Opcode.SW:
                 # Check RAW for active instructions
                 operand_1 = instruction.get("rs1", None)
                 operand_2 = instruction.get("rs2", None)
-    
 
                 for buffer in active_instruction_buffers:
                     for active_instruction in buffer:
@@ -478,103 +531,126 @@ class ProcessorPipeline():
 
                         if operand_1 == active_dest or operand_2 == active_dest:
                             return True
-                    
-                # TODO: Memory check for all operands of previous cycle is not considered
 
                 # In order store issue
                 for not_issued_instruction in earlier_not_issued:
                     if not_issued_instruction["operation"] == Category1Opcode.SW:
                         return True
 
-        if instruction["operation"] in [Category2Opcode.ADD, Category2Opcode.SUB, Category3Opcode.ADDI]:
-                # Check RAW for active instructions
-                operand_1 = instruction.get("rs1", None)
-                operand_2 = instruction.get("rs2", None)
-                destination = instruction.get("rd", None)
+        if instruction["operation"] in [
+            Category2Opcode.ADD,
+            Category2Opcode.SUB,
+            Category3Opcode.ADDI,
+        ]:
+            # Check RAW for active instructions
+            operand_1 = instruction.get("rs1", None)
+            operand_2 = instruction.get("rs2", None)
+            destination = instruction.get("rd", None)
 
-                for buffer in active_instruction_buffers:
-                    for active_instruction in buffer:
-                        active_dest = active_instruction.get("rd", None)
+            for buffer in active_instruction_buffers:
+                for active_instruction in buffer:
+                    active_dest = active_instruction.get("rd", None)
 
-                        if (operand_1 is not None and operand_1 == active_dest) or (operand_2 is not None and operand_2 == active_dest):
-                            return True
-
-                # Check WAW for active instructions
-                for buffer in active_instruction_buffers:
-                    for active_instruction in buffer:
-                        active_dest = active_instruction.get("rd", None)
-                        if (active_dest is not None and active_dest == destination):
-                            return True
-
-                # Check WAW for same cycle issues
-                for buffer in same_cycle_issue_buffers:
-                    for same_cycle_instruction in buffer:
-                        same_cycle_dest = same_cycle_instruction.get("rd", None)
-                        if (same_cycle_dest is not None and same_cycle_dest == destination):
-                            return True
-
-                # Check WAR for same cycle issues
-                for buffer in same_cycle_issue_buffers:
-                    for same_cycle_instruction in buffer:
-                        same_cycle_operand_1 = same_cycle_instruction.get("rs1", None)
-                        same_cycle_operand_2 = same_cycle_instruction.get("rs2", None)
-
-                        if (destination is not None and destination == same_cycle_operand_1) or (destination is not None and destination == same_cycle_operand_2):
-                            return True
-
-                # Check WAR for not issued instructions
-                for not_issued_instruction in earlier_not_issued:
-                    not_issued_operand_1 = not_issued_instruction.get("rs1", None)
-                    not_issued_operand_2 = not_issued_instruction.get("rs2", None)
-
-                    if (destination is not None and destination == not_issued_operand_1) or (destination is not None and destination == not_issued_operand_2):
+                    if (operand_1 is not None and operand_1 == active_dest) or (
+                        operand_2 is not None and operand_2 == active_dest
+                    ):
                         return True
 
-        if instruction["operation"] in [Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI, Category3Opcode.SLL, Category3Opcode.SRAI]:
-
-                operand_1 = instruction.get("rs1", None)
-                operand_2 = instruction.get("rs2", None)
-                destination = instruction.get("rd", None)
-
-
-                # Check RAW for active instructions
-                for buffer in active_instruction_buffers:
-                    for active_instruction in buffer:
-                        active_dest = active_instruction.get("rd", None)
-
-                        if (operand_1 is not None and operand_1 == active_dest) or (operand_2 is not None and operand_2 == active_dest):
-                            return True
-
-                # Check WAW for active instructions
-                for buffer in active_instruction_buffers:
-                    for active_instruction in buffer:
-                        active_dest = active_instruction.get("rd", None)
-                        if (active_dest is not None and active_dest == destination):
-                            return True
-
-                # Check WAW for same cycle issues
-                for buffer in same_cycle_issue_buffers:
-                    for same_cycle_instruction in buffer:
-                        same_cycle_dest = same_cycle_instruction.get("rd", None)
-                        if (same_cycle_dest is not None and same_cycle_dest == destination):
-                            return True
-
-                # Check WAR for same cycle issues
-                for buffer in same_cycle_issue_buffers:
-                    for same_cycle_instruction in buffer:
-                        same_cycle_operand_1 = same_cycle_instruction.get("rs1", None)
-                        same_cycle_operand_2 = same_cycle_instruction.get("rs2", None)
-
-                        if (destination is not None and destination == same_cycle_operand_1) or (destination is not None and destination == same_cycle_operand_2):
-                            return True
-                        
-                # Check WAR for not issued instructions
-                for not_issued_instruction in earlier_not_issued:
-                    not_issued_operand_1 = not_issued_instruction.get("rs1", None)
-                    not_issued_operand_2 = not_issued_instruction.get("rs2", None)
-
-                    if (destination is not None and destination == not_issued_operand_1) or (destination is not None and destination == not_issued_operand_2):
+            # Check WAW for active instructions
+            for buffer in active_instruction_buffers:
+                for active_instruction in buffer:
+                    active_dest = active_instruction.get("rd", None)
+                    if active_dest is not None and active_dest == destination:
                         return True
+
+            # Check WAW for same cycle issues
+            for buffer in same_cycle_issue_buffers:
+                for same_cycle_instruction in buffer:
+                    same_cycle_dest = same_cycle_instruction.get("rd", None)
+                    if same_cycle_dest is not None and same_cycle_dest == destination:
+                        return True
+
+            # Check WAR for same cycle issues
+            for buffer in same_cycle_issue_buffers:
+                for same_cycle_instruction in buffer:
+                    same_cycle_operand_1 = same_cycle_instruction.get("rs1", None)
+                    same_cycle_operand_2 = same_cycle_instruction.get("rs2", None)
+
+                    if (
+                        destination is not None and destination == same_cycle_operand_1
+                    ) or (
+                        destination is not None and destination == same_cycle_operand_2
+                    ):
+                        return True
+
+            # Check WAR for not issued instructions
+            for not_issued_instruction in earlier_not_issued:
+                not_issued_operand_1 = not_issued_instruction.get("rs1", None)
+                not_issued_operand_2 = not_issued_instruction.get("rs2", None)
+
+                if (
+                    destination is not None and destination == not_issued_operand_1
+                ) or (destination is not None and destination == not_issued_operand_2):
+                    return True
+
+        if instruction["operation"] in [
+            Category2Opcode.AND,
+            Category2Opcode.OR,
+            Category3Opcode.ANDI,
+            Category3Opcode.ORI,
+            Category3Opcode.SLL,
+            Category3Opcode.SRAI,
+        ]:
+            operand_1 = instruction.get("rs1", None)
+            operand_2 = instruction.get("rs2", None)
+            destination = instruction.get("rd", None)
+
+            # Check RAW for active instructions
+            for buffer in active_instruction_buffers:
+                for active_instruction in buffer:
+                    active_dest = active_instruction.get("rd", None)
+
+                    if (operand_1 is not None and operand_1 == active_dest) or (
+                        operand_2 is not None and operand_2 == active_dest
+                    ):
+                        return True
+
+            # Check WAW for active instructions
+            for buffer in active_instruction_buffers:
+                for active_instruction in buffer:
+                    active_dest = active_instruction.get("rd", None)
+                    if active_dest is not None and active_dest == destination:
+                        return True
+
+            # Check WAW for same cycle issues
+            for buffer in same_cycle_issue_buffers:
+                for same_cycle_instruction in buffer:
+                    same_cycle_dest = same_cycle_instruction.get("rd", None)
+                    if same_cycle_dest is not None and same_cycle_dest == destination:
+                        return True
+
+            # Check WAR for same cycle issues
+            for buffer in same_cycle_issue_buffers:
+                for same_cycle_instruction in buffer:
+                    same_cycle_operand_1 = same_cycle_instruction.get("rs1", None)
+                    same_cycle_operand_2 = same_cycle_instruction.get("rs2", None)
+
+                    if (
+                        destination is not None and destination == same_cycle_operand_1
+                    ) or (
+                        destination is not None and destination == same_cycle_operand_2
+                    ):
+                        return True
+
+            # Check WAR for not issued instructions
+            for not_issued_instruction in earlier_not_issued:
+                not_issued_operand_1 = not_issued_instruction.get("rs1", None)
+                not_issued_operand_2 = not_issued_instruction.get("rs2", None)
+
+                if (
+                    destination is not None and destination == not_issued_operand_1
+                ) or (destination is not None and destination == not_issued_operand_2):
+                    return True
 
     def instruction_issue(self):
         """Issue instructions from the pre-issue buffer to the appropriate ALU buffers with hazard detection."""
@@ -589,7 +665,7 @@ class ProcessorPipeline():
         while True:
             if issue_count >= MAX_ISSUES_PER_CYCLE or len(self.pre_issue_prev) == 0:
                 break
-            
+
             if pop_index < len(self.pre_issue_prev):
                 instruction = self.pre_issue_prev[pop_index]
 
@@ -599,23 +675,43 @@ class ProcessorPipeline():
                     continue
 
                 if instruction["operation"] in [Category3Opcode.LW, Category1Opcode.SW]:
-                    if alu1_issue_count < MAX_ALU1_ISSUES_PER_CYCLE and len(self.alu1_prev) < PRE_ALU1_BUFFER_SIZE:
+                    if (
+                        alu1_issue_count < MAX_ALU1_ISSUES_PER_CYCLE
+                        and len(self.alu1_prev) < PRE_ALU1_BUFFER_SIZE
+                    ):
                         self.alu1_next.append(self.pre_issue_prev.pop(pop_index))
                         alu1_issue_count += 1
                         issue_count += 1
                     else:
                         pop_index += 1
 
-                if instruction["operation"] in [Category2Opcode.ADD, Category2Opcode.SUB, Category3Opcode.ADDI]:
-                    if alu2_issue_count < MAX_ALU2_ISSUES_PER_CYCLE and len(self.alu2_prev) < PRE_ALU2_BUFFER_SIZE:
+                if instruction["operation"] in [
+                    Category2Opcode.ADD,
+                    Category2Opcode.SUB,
+                    Category3Opcode.ADDI,
+                ]:
+                    if (
+                        alu2_issue_count < MAX_ALU2_ISSUES_PER_CYCLE
+                        and len(self.alu2_prev) < PRE_ALU2_BUFFER_SIZE
+                    ):
                         self.alu2_next.append(self.pre_issue_prev.pop(pop_index))
                         alu2_issue_count += 1
                         issue_count += 1
                     else:
                         pop_index += 1
 
-                if instruction["operation"] in [Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI, Category3Opcode.SLL, Category3Opcode.SRAI]:
-                    if alu3_issue_count < MAX_ALU3_ISSUES_PER_CYCLE and len(self.alu3_prev) < PRE_ALU3_BUFFER_SIZE:
+                if instruction["operation"] in [
+                    Category2Opcode.AND,
+                    Category2Opcode.OR,
+                    Category3Opcode.ANDI,
+                    Category3Opcode.ORI,
+                    Category3Opcode.SLL,
+                    Category3Opcode.SRAI,
+                ]:
+                    if (
+                        alu3_issue_count < MAX_ALU3_ISSUES_PER_CYCLE
+                        and len(self.alu3_prev) < PRE_ALU3_BUFFER_SIZE
+                    ):
                         self.alu3_next.append(self.pre_issue_prev.pop(pop_index))
                         alu3_issue_count += 1
                         issue_count += 1
@@ -640,8 +736,6 @@ class ProcessorPipeline():
         # print(f"ALU3_Prev: {self.alu3_prev}")
         # print("-------------------------------------")
 
-
-
     def alu1_execute(self):
         """Supports Category1Opcode.SW and Category3Opcode.LW instructions."""
 
@@ -651,32 +745,39 @@ class ProcessorPipeline():
         instruction = self.alu1_prev.pop(0)
 
         if instruction["operation"] == Category3Opcode.LW:
-            memory_address = self.registers[instruction["rs1"]] + instruction["immediate"]
+            memory_address = (
+                self.registers[instruction["rs1"]] + instruction["immediate"]
+            )
             instruction["memory_address"] = memory_address
 
         elif instruction["operation"] == Category1Opcode.SW:
-            memory_address = self.registers[instruction["rs2"]] + instruction["immediate"]
+            memory_address = (
+                self.registers[instruction["rs2"]] + instruction["immediate"]
+            )
             instruction["memory_address"] = memory_address
 
         self.memory_next.append(instruction)
-    
 
     def alu2_execute(self):
         """Supports Category2Opcode.ADD, Category2Opcode.SUB, and Category3Opcode.ADDI instructions."""
-        
+
         if len(self.alu2_prev) == 0:
             return
 
         instruction = self.alu2_prev.pop(0)
 
         if instruction["operation"] == Category2Opcode.ADD:
-            result = self.registers[instruction["rs1"]] + self.registers[instruction["rs2"]]
+            result = (
+                self.registers[instruction["rs1"]] + self.registers[instruction["rs2"]]
+            )
             instruction["result"] = result
 
         elif instruction["operation"] == Category2Opcode.SUB:
-            result = self.registers[instruction["rs1"]] - self.registers[instruction["rs2"]]
+            result = (
+                self.registers[instruction["rs1"]] - self.registers[instruction["rs2"]]
+            )
             instruction["result"] = result
-            
+
         elif instruction["operation"] == Category3Opcode.ADDI:
             result = self.registers[instruction["rs1"]] + instruction["immediate"]
             instruction["result"] = result
@@ -684,21 +785,26 @@ class ProcessorPipeline():
         self.post_alu2_next.append(instruction)
 
     def alu3_execute(self):
-        """Supports Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI, Category3Opcode.SLLI, and Category3Opcode.SRAI instructions."""
-        
+        """Supports Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI,
+        Category3Opcode.SLLI, and Category3Opcode.SRAI instructions."""
+
         if len(self.alu3_prev) == 0:
             return
 
         instruction = self.alu3_prev.pop(0)
 
         if instruction["operation"] == Category2Opcode.AND:
-            result = self.registers[instruction["rs1"]] & self.registers[instruction["rs2"]]
+            result = (
+                self.registers[instruction["rs1"]] & self.registers[instruction["rs2"]]
+            )
             instruction["result"] = result
 
         elif instruction["operation"] == Category2Opcode.OR:
-            result = self.registers[instruction["rs1"]] | self.registers[instruction["rs2"]]
+            result = (
+                self.registers[instruction["rs1"]] | self.registers[instruction["rs2"]]
+            )
             instruction["result"] = result
-            
+
         elif instruction["operation"] == Category3Opcode.ANDI:
             result = self.registers[instruction["rs1"]] & instruction["immediate"]
             instruction["result"] = result
@@ -718,16 +824,19 @@ class ProcessorPipeline():
         self.post_alu3_next.append(instruction)
 
     def memory_access(self):
-
         if len(self.memory_prev) == 0:
             return
-        
+
         instruction = self.memory_prev.pop(0)
         if instruction["operation"] == Category3Opcode.LW:
-            instruction["loaded_value"] = self.memory.get(instruction["memory_address"], 0)
+            instruction["loaded_value"] = self.memory.get(
+                instruction["memory_address"], 0
+            )
             self.post_memory_next.append(instruction)
         elif instruction["operation"] == Category1Opcode.SW:
-            self.memory[instruction["memory_address"]] = self.registers[instruction["rs1"]]
+            self.memory[instruction["memory_address"]] = self.registers[
+                instruction["rs1"]
+            ]
 
     def write_back(self):
         """Write back results to registers from post-memory, post-ALU2, and post-ALU3 buffers."""
@@ -735,34 +844,35 @@ class ProcessorPipeline():
         if len(self.post_memory_prev) > 0:
             post_mem_instruction = self.post_memory_prev.pop(0)
             if post_mem_instruction["operation"] == Category3Opcode.LW:
-                self.registers[post_mem_instruction["rd"]] = post_mem_instruction["loaded_value"]
+                self.registers[post_mem_instruction["rd"]] = post_mem_instruction[
+                    "loaded_value"
+                ]
 
-        elif len(self.post_alu2_prev) >0:
-                post_alu2_instruction = self.post_alu2_prev.pop(0)
-                self.registers[post_alu2_instruction["rd"]] = post_alu2_instruction["result"]
+        elif len(self.post_alu2_prev) > 0:
+            post_alu2_instruction = self.post_alu2_prev.pop(0)
+            self.registers[post_alu2_instruction["rd"]] = post_alu2_instruction[
+                "result"
+            ]
 
-        elif len(self.post_alu3_prev) >0:
-                post_alu3_instruction = self.post_alu3_prev.pop(0)
-                self.registers[post_alu3_instruction["rd"]] = post_alu3_instruction["result"]
+        elif len(self.post_alu3_prev) > 0:
+            post_alu3_instruction = self.post_alu3_prev.pop(0)
+            self.registers[post_alu3_instruction["rd"]] = post_alu3_instruction[
+                "result"
+            ]
 
     def handle_overflow(self) -> None:
         """Handle overflow for register values to ensure they stay within 32-bit signed integer range."""
 
         for i in range(len(self.registers)):
             if self.registers[i] < -(2**31):
-                self.registers[i] = (
-                    (self.registers[i] + 2**31) % 2**32
-                ) - 2**31
+                self.registers[i] = ((self.registers[i] + 2**31) % 2**32) - 2**31
             elif self.registers[i] > 2**31 - 1:
-                self.registers[i] = (
-                    (self.registers[i] - 2**31) % 2**32
-                ) - 2**31
+                self.registers[i] = ((self.registers[i] - 2**31) % 2**32) - 2**31
         return self.registers
 
-            
     def tick(self):
         """Advance the pipeline by one cycle."""
-        
+
         # Update previous cycle buffers with next cycle buffers
         self.pre_issue_prev.extend(self.pre_issue_next)
         self.pre_issue_next = []
@@ -792,11 +902,8 @@ class ProcessorPipeline():
         self.fetch_stall_curr = False
 
         self.registers[0] = 0  # Ensure register x0 is always 0
-        self.handle_overflow() # Handle overflow for registers
+        self.handle_overflow()  # Handle overflow for registers
 
-
-
-        
     def output_state(self):
         memory_print = ""
         mem_addresses = sorted(self.memory.keys())
@@ -816,14 +923,38 @@ class ProcessorPipeline():
         else:
             memory_print = ""
 
-        pre_issue = ["[" + instruction["assembly"].split("\t")[-1] + "]" for instruction in self.pre_issue_prev]
-        pre_alu1 = ["[" + instruction["assembly"].split("\t")[-1] + "]" for instruction in self.alu1_prev]
-        pre_mem = ["[" + instruction["assembly"].split("\t")[-1] + "]" for instruction in self.memory_prev]
-        post_mem = ["[" + instruction["assembly"].split("\t")[-1] + "]" for instruction in self.post_memory_prev]
-        pre_alu2 = ["[" + instruction["assembly"].split("\t")[-1] + "]" for instruction in self.alu2_prev]
-        post_alu2 = ["[" + instruction["assembly"].split("\t")[-1] + "]" for instruction in self.post_alu2_prev]
-        pre_alu3 = ["[" + instruction["assembly"].split("\t")[-1] + "]" for instruction in self.alu3_prev]
-        post_alu3 = ["[" + instruction["assembly"].split("\t")[-1] + "]" for instruction in self.post_alu3_prev]
+        pre_issue = [
+            "[" + instruction["assembly"].split("\t")[-1] + "]"
+            for instruction in self.pre_issue_prev
+        ]
+        pre_alu1 = [
+            "[" + instruction["assembly"].split("\t")[-1] + "]"
+            for instruction in self.alu1_prev
+        ]
+        pre_mem = [
+            "[" + instruction["assembly"].split("\t")[-1] + "]"
+            for instruction in self.memory_prev
+        ]
+        post_mem = [
+            "[" + instruction["assembly"].split("\t")[-1] + "]"
+            for instruction in self.post_memory_prev
+        ]
+        pre_alu2 = [
+            "[" + instruction["assembly"].split("\t")[-1] + "]"
+            for instruction in self.alu2_prev
+        ]
+        post_alu2 = [
+            "[" + instruction["assembly"].split("\t")[-1] + "]"
+            for instruction in self.post_alu2_prev
+        ]
+        pre_alu3 = [
+            "[" + instruction["assembly"].split("\t")[-1] + "]"
+            for instruction in self.alu3_prev
+        ]
+        post_alu3 = [
+            "[" + instruction["assembly"].split("\t")[-1] + "]"
+            for instruction in self.post_alu3_prev
+        ]
 
         output = (
             textwrap.dedent("""
@@ -856,20 +987,20 @@ class ProcessorPipeline():
         """).format(
                 "-" * 20,
                 self.cycle,
-                self.fetch_waiting, # IF Waiting
-                self.fetch_executed, # IF Executed
-                pre_issue[0] if len(pre_issue)>0 else "", # Pre-Issue 0
-                pre_issue[1] if len(pre_issue)>1 else "", # Pre-Issue 1
-                pre_issue[2] if len(pre_issue)>2 else "", # Pre-Issue 2
-                pre_issue[3] if len(pre_issue)>3 else "", # Pre-Issue 3
-                pre_alu1[0] if len(pre_alu1)>0 else "", # Pre-ALU1 0
-                pre_alu1[1] if len(pre_alu1)>1 else "", # Pre-ALU1 1
-                pre_mem[0] if len(pre_mem)>0 else "", # Pre-MEM
-                post_mem[0] if len(post_mem)>0 else "", # Post-MEM
-                pre_alu2[0] if len(pre_alu2)>0 else "", # Pre-ALU2
-                post_alu2[0] if len(post_alu2)>0 else "", # Post-ALU2
-                pre_alu3[0] if len(pre_alu3)>0 else "", # Pre-ALU3
-                post_alu3[0] if len(post_alu3)>0 else "", # Post-ALU3
+                self.fetch_waiting,  # IF Waiting
+                self.fetch_executed,  # IF Executed
+                pre_issue[0] if len(pre_issue) > 0 else "",  # Pre-Issue 0
+                pre_issue[1] if len(pre_issue) > 1 else "",  # Pre-Issue 1
+                pre_issue[2] if len(pre_issue) > 2 else "",  # Pre-Issue 2
+                pre_issue[3] if len(pre_issue) > 3 else "",  # Pre-Issue 3
+                pre_alu1[0] if len(pre_alu1) > 0 else "",  # Pre-ALU1 0
+                pre_alu1[1] if len(pre_alu1) > 1 else "",  # Pre-ALU1 1
+                pre_mem[0] if len(pre_mem) > 0 else "",  # Pre-MEM
+                post_mem[0] if len(post_mem) > 0 else "",  # Post-MEM
+                pre_alu2[0] if len(pre_alu2) > 0 else "",  # Pre-ALU2
+                post_alu2[0] if len(post_alu2) > 0 else "",  # Post-ALU2
+                pre_alu3[0] if len(pre_alu3) > 0 else "",  # Pre-ALU3
+                post_alu3[0] if len(post_alu3) > 0 else "",  # Post-ALU3
                 "\t".join(str(self.registers[i]) for i in range(0, 8)),
                 "\t".join(str(self.registers[i]) for i in range(8, 16)),
                 "\t".join(str(self.registers[i]) for i in range(16, 24)),
@@ -891,7 +1022,6 @@ class ProcessorPipeline():
 
         with open("simulation.txt", "w") as simfile:
             while True:
-
                 self.fetch_waiting = ""
                 self.fetch_executed = ""
                 self.instruction_fetch()
@@ -917,7 +1047,9 @@ class ProcessorPipeline():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('risv_text', type=str, help='Path to the RISC-V assembly text file')
+    parser.add_argument(
+        "risv_text", type=str, help="Path to the RISC-V assembly text file"
+    )
     args = parser.parse_args()
     riscv_instructions = args.risv_text
 
@@ -929,10 +1061,6 @@ def main():
     processor = ProcessorPipeline(memory)
     processor.process(riscv_instructions)
 
-    
-
-
 
 if __name__ == "__main__":
     main()
-
