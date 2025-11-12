@@ -387,30 +387,38 @@ class ProcessorPipeline():
         # Types: [Category3Opcode.LW, Category1Opcode.SW] 
         # HZ-1, HZ-2, HZ-3, HZ-4, HZ-5, HZ-6, HZ-7
 
+        # operand_1 = instruction.get("rs1", None)
+        # operand_2 = instruction.get("rs2", None)
+        # destination = instruction.get("rd", None) 
+
+        earlier_not_issued = self.pre_issue_prev[:issue_buffer_index]
+
+        active_instruction_buffers = [self.alu1_prev, self.alu1_next, self.alu2_prev, self.alu2_next, self.alu3_prev, self.alu3_next, self.memory_prev, self.post_alu2_prev, self.post_alu3_prev, self.post_memory_prev]
+        active_instruction_buffers = active_instruction_buffers + [earlier_not_issued]
+
+        same_cycle_issue_buffers = [self.alu1_next, self.alu2_next, self.alu3_next]
+        
+
         if instruction["operation"] in [Category3Opcode.LW, Category1Opcode.SW]:
             # HZ-1 - Done
-            operand_1 = instruction.get("rs1", None)
-            operand_2 = instruction.get("rs2", None)
-            destination = instruction.get("rd", None)   
-
+  
             # LW rd, rs1, immediate , rd <- MEM[rs1 + immediate]
             # SW rs1, rs2, immediate  , MEM[rs2 + immediate] <- rs1
 
-            active_instruction_buffers = [self.alu1_prev, self.alu2_prev, self.alu3_prev, self.memory_prev, self.post_alu2_prev, self.post_alu3_prev, self.post_memory_prev]
-            same_cycle_issue_buffers = [self.alu1_next, self.alu2_next, self.alu3_next]
-            not_issued_instruction_buffers =  [self.pre_issue_prev[:issue_buffer_index] + self.pre_issue_prev[issue_buffer_index+1:]]
-
             if instruction["operation"] == Category3Opcode.LW:
+                
+                operand_1 = instruction.get("rs1", None)
+                destination = instruction.get("rd", None)
+
                 # Check RAW for active instructions
                 for buffer in active_instruction_buffers:
                     for active_instruction in buffer:
                         active_dest = active_instruction.get("rd", None)
 
-                        if operand_1 == active_dest or operand_2 == active_dest:
+                        if operand_1 == active_dest:
                             return True
 
-
-                # Check WAW for active instructions
+                # Check WAW for active instructions # NOTE: This is extreme but let's see
                 for buffer in active_instruction_buffers:
                     for active_instruction in buffer:
                         active_dest = active_instruction.get("rd", None)
@@ -434,36 +442,33 @@ class ProcessorPipeline():
                             return True
 
                 # Check WAR for not issued instructions
-                for buffer in not_issued_instruction_buffers:
-                    for not_issued_instruction in buffer:
-                        not_issued_operand_1 = not_issued_instruction.get("rs1", None)
-                        not_issued_operand_2 = not_issued_instruction.get("rs2", None)
+                for not_issued_instruction in earlier_not_issued:
+                    not_issued_operand_1 = not_issued_instruction.get("rs1", None)
+                    not_issued_operand_2 = not_issued_instruction.get("rs2", None)
 
-                        if destination == not_issued_operand_1 or destination == not_issued_operand_2:
-                            return True
+                    if destination == not_issued_operand_1 or destination == not_issued_operand_2:
+                        return True
 
-                # Check all sources are ready
-                for buffer in active_instruction_buffers:
-                    for active_instruction in buffer:
-                        active_dest = active_instruction.get("rd", None)
+                # # Check all sources are ready #TODO: Do I need this? 
+                # for buffer in active_instruction_buffers:
+                #     for active_instruction in buffer:
+                #         active_dest = active_instruction.get("rd", None)
 
-                        if operand_1 == active_dest or operand_2 == active_dest:
-                            return True
+                #         if operand_1 == active_dest or operand_2 == active_dest:
+                #             return True
 
                 # Load stay until all previous stores # NOTE: Is this correct?
-                for buffer in active_instruction_buffers:
-                    for active_instruction in buffer:
-                        if active_instruction["operation"] == Category1Opcode.SW:
-                            return True
-                
-                for buffer in same_cycle_issue_buffers:
-                    for same_cycle_instruction in buffer:
-                        if same_cycle_instruction["operation"] == Category1Opcode.SW:
-                            return True
+                for not_issued_instruction in earlier_not_issued:
+                    if not_issued_instruction["operation"] == Category1Opcode.SW:
+                        return True
 
 
             elif instruction["operation"] == Category1Opcode.SW:
-               # Check RAW for active instructions
+                # Check RAW for active instructions
+                operand_1 = instruction.get("rs1", None)
+                operand_2 = instruction.get("rs2", None)
+    
+
                 for buffer in active_instruction_buffers:
                     for active_instruction in buffer:
                         active_dest = active_instruction.get("rd", None)
@@ -471,76 +476,71 @@ class ProcessorPipeline():
                         if operand_1 == active_dest or operand_2 == active_dest:
                             return True
 
-                # Check WAW for active instructions
-                for buffer in active_instruction_buffers:
-                    for active_instruction in buffer:
-                        active_dest = active_instruction.get("rd", None)
-                        if active_dest == destination:
-                            return True
+                # # Check WAW for active instructions # NOTE: This is extreme but let's see
+                # for buffer in active_instruction_buffers:
+                #     for active_instruction in buffer:
+                #         active_dest = active_instruction.get("rd", None)
+                #         if active_dest == destination:
+                #             return True
 
-                # Check WAW for same cycle issues
-                for buffer in same_cycle_issue_buffers:
-                    for same_cycle_instruction in buffer:
-                        same_cycle_dest = same_cycle_instruction.get("rd", None)
-                        if same_cycle_dest == destination:
-                            return True
+                # # Check WAW for same cycle issues
+                # for buffer in same_cycle_issue_buffers:
+                #     for same_cycle_instruction in buffer:
+                #         same_cycle_dest = same_cycle_instruction.get("rd", None)
+                #         if same_cycle_dest == destination:
+                #             return True
 
-                # Check WAR for same cycle issues
-                for buffer in same_cycle_issue_buffers:
-                    for same_cycle_instruction in buffer:
-                        same_cycle_operand_1 = same_cycle_instruction.get("rs1", None)
-                        same_cycle_operand_2 = same_cycle_instruction.get("rs2", None)
+                # # Check WAR for same cycle issues
+                # for buffer in same_cycle_issue_buffers:
+                #     for same_cycle_instruction in buffer:
+                #         same_cycle_operand_1 = same_cycle_instruction.get("rs1", None)
+                #         same_cycle_operand_2 = same_cycle_instruction.get("rs2", None)
 
-                        if destination == same_cycle_operand_1 or destination == same_cycle_operand_2:
-                            return True
+                #         if destination == same_cycle_operand_1 or destination == same_cycle_operand_2:
+                #             return True
 
-                # Check WAR for not issued instructions
-                for buffer in not_issued_instruction_buffers:
-                    for not_issued_instruction in buffer:
-                        not_issued_operand_1 = not_issued_instruction.get("rs1", None)
-                        not_issued_operand_2 = not_issued_instruction.get("rs2", None)
+                # # Check WAR for not issued instructions
+                # for not_issued_instruction in earlier_not_issued:
+                #     not_issued_operand_1 = not_issued_instruction.get("rs1", None)
+                #     not_issued_operand_2 = not_issued_instruction.get("rs2", None)
 
-                        if destination == not_issued_operand_1 or destination == not_issued_operand_2:
-                            return True
-
-                # Check all sources are ready
-                for buffer in active_instruction_buffers:
-                    for active_instruction in buffer:
-                        active_dest = active_instruction.get("rd", None)
-
-                        if operand_1 == active_dest or operand_2 == active_dest:
-                            return True
+                #     if destination == not_issued_operand_1 or destination == not_issued_operand_2:
+                #         return True
+                    
+                # TODO: Memory check for all operands of previous cycle is not considered
 
                 # In order store issue
-                for buffer in not_issued_instruction_buffers[:issue_buffer_index]:
-                    for not_issued_instruction in buffer:
-                        if not_issued_instruction["operation"] == Category1Opcode.SW:
-                            return True 
+                for not_issued_instruction in earlier_not_issued:
+                    if not_issued_instruction["operation"] == Category1Opcode.SW:
+                        return True
 
         # Types: [Category2Opcode.ADD, Category2Opcode.SUB, Category3Opcode.ADDI]
         # HZ-1, HZ-2, HZ-3, HZ-4
         if instruction["operation"] in [Category2Opcode.ADD, Category2Opcode.SUB, Category3Opcode.ADDI]:
                 # Check RAW for active instructions
+                operand_1 = instruction.get("rs1", None)
+                operand_2 = instruction.get("rs2", None)
+                destination = instruction.get("rd", None)
+
                 for buffer in active_instruction_buffers:
                     for active_instruction in buffer:
                         active_dest = active_instruction.get("rd", None)
 
-                        if operand_1 == active_dest or operand_2 == active_dest:
+                        if (operand_1 is not None and operand_1 == active_dest) or (operand_2 is not None and operand_2 == active_dest):
                             return True
-
 
                 # Check WAW for active instructions
                 for buffer in active_instruction_buffers:
                     for active_instruction in buffer:
                         active_dest = active_instruction.get("rd", None)
-                        if active_dest == destination:
+                        if (active_dest is not None and active_dest == destination):
                             return True
 
                 # Check WAW for same cycle issues
                 for buffer in same_cycle_issue_buffers:
                     for same_cycle_instruction in buffer:
                         same_cycle_dest = same_cycle_instruction.get("rd", None)
-                        if same_cycle_dest == destination:
+                        if (same_cycle_dest is not None and same_cycle_dest == destination):
                             return True
 
                 # Check WAR for same cycle issues
@@ -549,43 +549,47 @@ class ProcessorPipeline():
                         same_cycle_operand_1 = same_cycle_instruction.get("rs1", None)
                         same_cycle_operand_2 = same_cycle_instruction.get("rs2", None)
 
-                        if destination == same_cycle_operand_1 or destination == same_cycle_operand_2:
+                        if (destination is not None and destination == same_cycle_operand_1) or (destination is not None and destination == same_cycle_operand_2):
                             return True
 
                 # Check WAR for not issued instructions
-                for buffer in not_issued_instruction_buffers:
-                    for not_issued_instruction in buffer:
-                        not_issued_operand_1 = not_issued_instruction.get("rs1", None)
-                        not_issued_operand_2 = not_issued_instruction.get("rs2", None)
+                for not_issued_instruction in earlier_not_issued:
+                    not_issued_operand_1 = not_issued_instruction.get("rs1", None)
+                    not_issued_operand_2 = not_issued_instruction.get("rs2", None)
 
-                        if destination == not_issued_operand_1 or destination == not_issued_operand_2:
-                            return True
+                    if (destination is not None and destination == not_issued_operand_1) or (destination is not None and destination == not_issued_operand_2):
+                        return True
 
         # Types: [Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI, Category3Opcode.SLLI, Category3Opcode.SRAI]
         # HZ-1, HZ-2, HZ-3, HZ-4
 
         if instruction["operation"] in [Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI, Category3Opcode.SLLI, Category3Opcode.SRAI]:
+
+                operand_1 = instruction.get("rs1", None)
+                operand_2 = instruction.get("rs2", None)
+                destination = instruction.get("rd", None)
+
+
                 # Check RAW for active instructions
                 for buffer in active_instruction_buffers:
                     for active_instruction in buffer:
                         active_dest = active_instruction.get("rd", None)
 
-                        if operand_1 == active_dest or operand_2 == active_dest:
+                        if (operand_1 is not None and operand_1 == active_dest) or (operand_2 is not None and operand_2 == active_dest):
                             return True
-
 
                 # Check WAW for active instructions
                 for buffer in active_instruction_buffers:
                     for active_instruction in buffer:
                         active_dest = active_instruction.get("rd", None)
-                        if active_dest == destination:
+                        if (active_dest is not None and active_dest == destination):
                             return True
 
                 # Check WAW for same cycle issues
                 for buffer in same_cycle_issue_buffers:
                     for same_cycle_instruction in buffer:
                         same_cycle_dest = same_cycle_instruction.get("rd", None)
-                        if same_cycle_dest == destination:
+                        if (same_cycle_dest is not None and same_cycle_dest == destination):
                             return True
 
                 # Check WAR for same cycle issues
@@ -594,17 +598,16 @@ class ProcessorPipeline():
                         same_cycle_operand_1 = same_cycle_instruction.get("rs1", None)
                         same_cycle_operand_2 = same_cycle_instruction.get("rs2", None)
 
-                        if destination == same_cycle_operand_1 or destination == same_cycle_operand_2:
+                        if (destination is not None and destination == same_cycle_operand_1) or (destination is not None and destination == same_cycle_operand_2):
                             return True
-
+                        
                 # Check WAR for not issued instructions
-                for buffer in not_issued_instruction_buffers:
-                    for not_issued_instruction in buffer:
-                        not_issued_operand_1 = not_issued_instruction.get("rs1", None)
-                        not_issued_operand_2 = not_issued_instruction.get("rs2", None)
+                for not_issued_instruction in earlier_not_issued:
+                    not_issued_operand_1 = not_issued_instruction.get("rs1", None)
+                    not_issued_operand_2 = not_issued_instruction.get("rs2", None)
 
-                        if destination == not_issued_operand_1 or destination == not_issued_operand_2:
-                            return True
+                    if (destination is not None and destination == not_issued_operand_1) or (destination is not None and destination == not_issued_operand_2):
+                        return True
 
     def instruction_issue(self):
 
