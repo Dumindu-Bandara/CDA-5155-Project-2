@@ -323,6 +323,7 @@ class ProcessorPipeline():
                     else:
                         self.pc += 4
                 elif decoded_instruction["operation"] == Category4Opcode.BREAK:
+                    self.fetch_executed = "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
                     self.ended = True
                     return
 
@@ -335,6 +336,7 @@ class ProcessorPipeline():
                 decoded_instruction = instruction_decoder(instruction, self.pc)
 
                 if decoded_instruction["operation"] == Category4Opcode.BREAK:
+                    self.fetch_executed = "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
                     self.ended = True
                     return
 
