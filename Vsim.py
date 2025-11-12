@@ -366,9 +366,10 @@ class ProcessorPipeline():
                 elif decoded_instruction["operation"] == Category4Opcode.JAL:
                     # Write to the register file in the writeback stage. 
                     # NOTE: Does this working correctly with the pipeline?
-                    decoded_instruction["result"] = self.PC + 4
-                    self.pre_issue_next.append(decoded_instruction)
-                    self.PC += decoded_instruction["immediate"] << 1
+                    # decoded_instruction["result"] = self.pc + 4
+                    self.registers[decoded_instruction["rd"]] = self.pc + 4
+                    self.pc += decoded_instruction["immediate"] << 1
+                    self.fetch_executed = "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
 
                 else:
                     self.pre_issue_next.append(decoded_instruction)
@@ -763,6 +764,7 @@ class ProcessorPipeline():
         instruction = self.memory_prev.pop(0)
         if instruction["operation"] == Category3Opcode.LW:
             instruction["loaded_value"] = self.memory.get(instruction["memory_address"], 0)
+            self.post_memory_next.append(instruction)
         elif instruction["operation"] == Category1Opcode.SW:
             self.memory[instruction["memory_address"]] = self.registers[instruction["rs2"]]
 
@@ -933,6 +935,7 @@ class ProcessorPipeline():
                 self.instruction_fetch()
 
                 if self.ended:
+                    self.output_state()
                     break
 
                 self.instruction_issue()
@@ -963,7 +966,6 @@ def main():
 
     processor = ProcessorPipeline(memory)
     processor.process(riscv_instructions)
-    print("Hi")
 
     
 
