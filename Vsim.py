@@ -231,10 +231,6 @@ class Disassembler:
 
                 address += 4
 
-        # with open("disassembly.txt", "w") as outfile:
-        #     for line in disassebly_output:
-        #         outfile.write(line + "\n")
-
 
 class ProcessorPipeline():
 
@@ -340,10 +336,6 @@ class ProcessorPipeline():
                     break
 
                 elif decoded_instruction["operation"] in [Category1Opcode.BEQ, Category1Opcode.BNE, Category1Opcode.BLT]:
-                    # Branch instructions are not issued
-                    # Check branch values are processed, else stall the pipeline
-                    # TODO: Add branch handling
-                    # TODO: Add pc offset
 
                     operand_1 = decoded_instruction["rs1"]
                     operand_2 = decoded_instruction["rs2"]
@@ -351,7 +343,6 @@ class ProcessorPipeline():
                         self.fetch_waiting = "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
                         return
                     else:
-                        # TODO: Add branch offset and PC update
                         self.fetch_executed = "[" + decoded_instruction["assembly"].split("\t")[-1] + "]"
 
                         if decoded_instruction["operation"] == Category1Opcode.BEQ:
@@ -384,7 +375,236 @@ class ProcessorPipeline():
                     self.pc += 4
 
     def hazard_detection(self, instruction, issue_buffer_index):
-        pass
+        # Hazard detection and issue logic
+        # No structural hazards - no speculation - HZ-1
+        # No RAW and WAW hazards with active instructions - HZ-2
+        # No WAW or WAR hazards with two instructions in the same cycle - HZ-3
+        # No WAR hazards with not-issued intructions - HZ-4
+        # For MEM all source register are ready - HZ-5
+        # Load stay until all previous stores? - HZ-6
+        # In order store issue - HZ-7
+
+        # Types: [Category3Opcode.LW, Category1Opcode.SW] 
+        # HZ-1, HZ-2, HZ-3, HZ-4, HZ-5, HZ-6, HZ-7
+
+        if instruction["operation"] in [Category3Opcode.LW, Category1Opcode.SW]:
+            # HZ-1 - Done
+            operand_1 = instruction.get("rs1", None)
+            operand_2 = instruction.get("rs2", None)
+            destination = instruction.get("rd", None)   
+
+            # LW rd, rs1, immediate , rd <- MEM[rs1 + immediate]
+            # SW rs1, rs2, immediate  , MEM[rs2 + immediate] <- rs1
+
+            active_instruction_buffers = [self.alu1_prev, self.alu2_prev, self.alu3_prev, self.memory_prev, self.post_alu2_prev, self.post_alu3_prev, self.post_memory_prev]
+            same_cycle_issue_buffers = [self.alu1_next, self.alu2_next, self.alu3_next]
+            not_issued_instruction_buffers =  [self.pre_issue_prev[:issue_buffer_index] + self.pre_issue_prev[issue_buffer_index+1:]]
+
+            if instruction["operation"] == Category3Opcode.LW:
+                # Check RAW for active instructions
+                for buffer in active_instruction_buffers:
+                    for active_instruction in buffer:
+                        active_dest = active_instruction.get("rd", None)
+
+                        if operand_1 == active_dest or operand_2 == active_dest:
+                            return True
+
+
+                # Check WAW for active instructions
+                for buffer in active_instruction_buffers:
+                    for active_instruction in buffer:
+                        active_dest = active_instruction.get("rd", None)
+                        if active_dest == destination:
+                            return True
+
+                # Check WAW for same cycle issues
+                for buffer in same_cycle_issue_buffers:
+                    for same_cycle_instruction in buffer:
+                        same_cycle_dest = same_cycle_instruction.get("rd", None)
+                        if same_cycle_dest == destination:
+                            return True
+
+                # Check WAR for same cycle issues
+                for buffer in same_cycle_issue_buffers:
+                    for same_cycle_instruction in buffer:
+                        same_cycle_operand_1 = same_cycle_instruction.get("rs1", None)
+                        same_cycle_operand_2 = same_cycle_instruction.get("rs2", None)
+
+                        if destination == same_cycle_operand_1 or destination == same_cycle_operand_2:
+                            return True
+
+                # Check WAR for not issued instructions
+                for buffer in not_issued_instruction_buffers:
+                    for not_issued_instruction in buffer:
+                        not_issued_operand_1 = not_issued_instruction.get("rs1", None)
+                        not_issued_operand_2 = not_issued_instruction.get("rs2", None)
+
+                        if destination == not_issued_operand_1 or destination == not_issued_operand_2:
+                            return True
+
+                # Check all sources are ready
+                for buffer in active_instruction_buffers:
+                    for active_instruction in buffer:
+                        active_dest = active_instruction.get("rd", None)
+
+                        if operand_1 == active_dest or operand_2 == active_dest:
+                            return True
+
+                # Load stay until all previous stores # NOTE: Is this correct?
+                for buffer in active_instruction_buffers:
+                    for active_instruction in buffer:
+                        if active_instruction["operation"] == Category1Opcode.SW:
+                            return True
+                
+                for buffer in same_cycle_issue_buffers:
+                    for same_cycle_instruction in buffer:
+                        if same_cycle_instruction["operation"] == Category1Opcode.SW:
+                            return True
+
+
+            elif instruction["operation"] == Category1Opcode.SW:
+               # Check RAW for active instructions
+                for buffer in active_instruction_buffers:
+                    for active_instruction in buffer:
+                        active_dest = active_instruction.get("rd", None)
+
+                        if operand_1 == active_dest or operand_2 == active_dest:
+                            return True
+
+                # Check WAW for active instructions
+                for buffer in active_instruction_buffers:
+                    for active_instruction in buffer:
+                        active_dest = active_instruction.get("rd", None)
+                        if active_dest == destination:
+                            return True
+
+                # Check WAW for same cycle issues
+                for buffer in same_cycle_issue_buffers:
+                    for same_cycle_instruction in buffer:
+                        same_cycle_dest = same_cycle_instruction.get("rd", None)
+                        if same_cycle_dest == destination:
+                            return True
+
+                # Check WAR for same cycle issues
+                for buffer in same_cycle_issue_buffers:
+                    for same_cycle_instruction in buffer:
+                        same_cycle_operand_1 = same_cycle_instruction.get("rs1", None)
+                        same_cycle_operand_2 = same_cycle_instruction.get("rs2", None)
+
+                        if destination == same_cycle_operand_1 or destination == same_cycle_operand_2:
+                            return True
+
+                # Check WAR for not issued instructions
+                for buffer in not_issued_instruction_buffers:
+                    for not_issued_instruction in buffer:
+                        not_issued_operand_1 = not_issued_instruction.get("rs1", None)
+                        not_issued_operand_2 = not_issued_instruction.get("rs2", None)
+
+                        if destination == not_issued_operand_1 or destination == not_issued_operand_2:
+                            return True
+
+                # Check all sources are ready
+                for buffer in active_instruction_buffers:
+                    for active_instruction in buffer:
+                        active_dest = active_instruction.get("rd", None)
+
+                        if operand_1 == active_dest or operand_2 == active_dest:
+                            return True
+
+                # In order store issue
+                for buffer in not_issued_instruction_buffers[:issue_buffer_index]:
+                    for not_issued_instruction in buffer:
+                        if not_issued_instruction["operation"] == Category1Opcode.SW:
+                            return True 
+
+        # Types: [Category2Opcode.ADD, Category2Opcode.SUB, Category3Opcode.ADDI]
+        # HZ-1, HZ-2, HZ-3, HZ-4
+        if instruction["operation"] in [Category2Opcode.ADD, Category2Opcode.SUB, Category3Opcode.ADDI]:
+                # Check RAW for active instructions
+                for buffer in active_instruction_buffers:
+                    for active_instruction in buffer:
+                        active_dest = active_instruction.get("rd", None)
+
+                        if operand_1 == active_dest or operand_2 == active_dest:
+                            return True
+
+
+                # Check WAW for active instructions
+                for buffer in active_instruction_buffers:
+                    for active_instruction in buffer:
+                        active_dest = active_instruction.get("rd", None)
+                        if active_dest == destination:
+                            return True
+
+                # Check WAW for same cycle issues
+                for buffer in same_cycle_issue_buffers:
+                    for same_cycle_instruction in buffer:
+                        same_cycle_dest = same_cycle_instruction.get("rd", None)
+                        if same_cycle_dest == destination:
+                            return True
+
+                # Check WAR for same cycle issues
+                for buffer in same_cycle_issue_buffers:
+                    for same_cycle_instruction in buffer:
+                        same_cycle_operand_1 = same_cycle_instruction.get("rs1", None)
+                        same_cycle_operand_2 = same_cycle_instruction.get("rs2", None)
+
+                        if destination == same_cycle_operand_1 or destination == same_cycle_operand_2:
+                            return True
+
+                # Check WAR for not issued instructions
+                for buffer in not_issued_instruction_buffers:
+                    for not_issued_instruction in buffer:
+                        not_issued_operand_1 = not_issued_instruction.get("rs1", None)
+                        not_issued_operand_2 = not_issued_instruction.get("rs2", None)
+
+                        if destination == not_issued_operand_1 or destination == not_issued_operand_2:
+                            return True
+
+        # Types: [Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI, Category3Opcode.SLLI, Category3Opcode.SRAI]
+        # HZ-1, HZ-2, HZ-3, HZ-4
+
+        if instruction["operation"] in [Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI, Category3Opcode.SLLI, Category3Opcode.SRAI]:
+                # Check RAW for active instructions
+                for buffer in active_instruction_buffers:
+                    for active_instruction in buffer:
+                        active_dest = active_instruction.get("rd", None)
+
+                        if operand_1 == active_dest or operand_2 == active_dest:
+                            return True
+
+
+                # Check WAW for active instructions
+                for buffer in active_instruction_buffers:
+                    for active_instruction in buffer:
+                        active_dest = active_instruction.get("rd", None)
+                        if active_dest == destination:
+                            return True
+
+                # Check WAW for same cycle issues
+                for buffer in same_cycle_issue_buffers:
+                    for same_cycle_instruction in buffer:
+                        same_cycle_dest = same_cycle_instruction.get("rd", None)
+                        if same_cycle_dest == destination:
+                            return True
+
+                # Check WAR for same cycle issues
+                for buffer in same_cycle_issue_buffers:
+                    for same_cycle_instruction in buffer:
+                        same_cycle_operand_1 = same_cycle_instruction.get("rs1", None)
+                        same_cycle_operand_2 = same_cycle_instruction.get("rs2", None)
+
+                        if destination == same_cycle_operand_1 or destination == same_cycle_operand_2:
+                            return True
+
+                # Check WAR for not issued instructions
+                for buffer in not_issued_instruction_buffers:
+                    for not_issued_instruction in buffer:
+                        not_issued_operand_1 = not_issued_instruction.get("rs1", None)
+                        not_issued_operand_2 = not_issued_instruction.get("rs2", None)
+
+                        if destination == not_issued_operand_1 or destination == not_issued_operand_2:
+                            return True
 
     def instruction_issue(self):
 
@@ -394,7 +614,6 @@ class ProcessorPipeline():
         alu3_issue_count = 0
 
         pop_index = 0
-        no_hazard = True # TODO: Add hazard detection logic
 
         while True:
             if issue_count >= MAX_ISSUES_PER_CYCLE or len(self.pre_issue_prev) == 0:
@@ -403,17 +622,13 @@ class ProcessorPipeline():
             if pop_index < len(self.pre_issue_prev):
                 instruction = self.pre_issue_prev[pop_index]
 
-                # Hazard detection and issue logic
-                # No structural hazards - no speculation - HZ-1
-                # No RAW and WAW hazards with active instructions - HZ-2
-                # No WAW or WAR hazards with two instructions in the same cycle - HZ-3
-                # No WAR hazards with not-issued intructions - HZ-4
-                # For MEM all source register are ready - HZ-5
-                # Load stay until all previous stores? - HZ-6
-                # In order store issue - HZ-7
+                is_hazard = self.hazard_detection(instruction, pop_index)
+                if is_hazard:
+                    pop_index += 1
+                    continue
 
                 if instruction["operation"] in [Category3Opcode.LW, Category1Opcode.SW]:
-                    if alu1_issue_count < MAX_ALU1_ISSUES_PER_CYCLE and len(self.alu1_prev) < PRE_ALU1_BUFFER_SIZE and no_hazard:
+                    if alu1_issue_count < MAX_ALU1_ISSUES_PER_CYCLE and len(self.alu1_prev) < PRE_ALU1_BUFFER_SIZE:
                         # TODO: Add hazard detection here
                         # HZ-1, HZ-2, HZ-3, HZ-4, HZ-5, HZ-6, HZ-7
                         self.alu1_next.append(self.pre_issue_prev.pop(pop_index))
@@ -423,7 +638,7 @@ class ProcessorPipeline():
                         pop_index += 1
 
                 if instruction["operation"] in [Category2Opcode.ADD, Category2Opcode.SUB, Category3Opcode.ADDI]:
-                    if alu2_issue_count < MAX_ALU2_ISSUES_PER_CYCLE and len(self.alu2_prev) < PRE_ALU2_BUFFER_SIZE and no_hazard:
+                    if alu2_issue_count < MAX_ALU2_ISSUES_PER_CYCLE and len(self.alu2_prev) < PRE_ALU2_BUFFER_SIZE:
                         # TODO: Add hazard detection here
                         # HZ-1, HZ-2, HZ-3, HZ-4
                         self.alu2_next.append(self.pre_issue_prev.pop(pop_index))
@@ -433,7 +648,7 @@ class ProcessorPipeline():
                         pop_index += 1
 
                 if instruction["operation"] in [Category2Opcode.AND, Category2Opcode.OR, Category3Opcode.ANDI, Category3Opcode.ORI, Category3Opcode.SLLI, Category3Opcode.SRAI]:
-                    if alu3_issue_count < MAX_ALU3_ISSUES_PER_CYCLE and len(self.alu3_prev) < PRE_ALU3_BUFFER_SIZE and no_hazard:
+                    if alu3_issue_count < MAX_ALU3_ISSUES_PER_CYCLE and len(self.alu3_prev) < PRE_ALU3_BUFFER_SIZE:
                         # TODO: Add hazard detection here
                         # HZ-1, HZ-2, HZ-3, HZ-4
                         self.alu3_next.append(self.pre_issue_prev.pop(pop_index))
