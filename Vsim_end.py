@@ -72,7 +72,7 @@ class Category3Opcode(Enum):
     ANDI = "00001"
     ORI = "00010"
     SLL = "00011"
-    SRA = "00100"
+    SRAI = "00100"
     LW = "00101"
 
 
@@ -150,7 +150,7 @@ def instruction_decoder(instruction: str, address: int) -> dict[str, int | str |
         output_dict["rd"] = int(instruction[20:25], 2)
         output_dict["rs1"] = int(instruction[12:17], 2)
 
-        if opcode in [Category3Opcode.SLL.value, Category3Opcode.SRA.value]:
+        if opcode in [Category3Opcode.SLL.value, Category3Opcode.SRAI.value]:
             immediate = instruction[7:12]
             output_dict["immediate"] = int(immediate, 2)
         else:
@@ -315,6 +315,9 @@ class ProcessorPipeline:
         """Fetch instructions from memory and handle branch instructions with hazard detection."""
 
         if self.fetch_stall_prev:
+            if self.ended:
+                return
+
             instruction = self.instructions.get(self.pc)
             decoded_instruction = instruction_decoder(instruction, self.pc)
 
@@ -364,6 +367,9 @@ class ProcessorPipeline:
                     return
 
         else:
+            if self.ended:
+                return
+
             num_issues = min(
                 PRE_ISSUE_BUFFER_SIZE - len(self.pre_issue_prev), MAX_FETCHES_PER_CYCLE
             )
@@ -599,7 +605,7 @@ class ProcessorPipeline:
             Category3Opcode.ANDI,
             Category3Opcode.ORI,
             Category3Opcode.SLL,
-            Category3Opcode.SRA,
+            Category3Opcode.SRAI,
         ]:
             operand_1 = instruction.get("rs1", None)
             operand_2 = instruction.get("rs2", None)
@@ -706,7 +712,7 @@ class ProcessorPipeline:
                     Category3Opcode.ANDI,
                     Category3Opcode.ORI,
                     Category3Opcode.SLL,
-                    Category3Opcode.SRA,
+                    Category3Opcode.SRAI,
                 ]:
                     if (
                         alu3_issue_count < MAX_ALU3_ISSUES_PER_CYCLE
@@ -817,7 +823,7 @@ class ProcessorPipeline:
             result = self.registers[instruction["rs1"]] << instruction["immediate"]
             instruction["result"] = result
 
-        elif instruction["operation"] == Category3Opcode.SRA:
+        elif instruction["operation"] == Category3Opcode.SRAI:
             result = self.registers[instruction["rs1"]] >> instruction["immediate"]
             instruction["result"] = result
 
@@ -848,13 +854,13 @@ class ProcessorPipeline:
                     "loaded_value"
                 ]
 
-        if len(self.post_alu2_prev) > 0:
+        elif len(self.post_alu2_prev) > 0:
             post_alu2_instruction = self.post_alu2_prev.pop(0)
             self.registers[post_alu2_instruction["rd"]] = post_alu2_instruction[
                 "result"
             ]
 
-        if len(self.post_alu3_prev) > 0:
+        elif len(self.post_alu3_prev) > 0:
             post_alu3_instruction = self.post_alu3_prev.pop(0)
             self.registers[post_alu3_instruction["rd"]] = post_alu3_instruction[
                 "result"
@@ -1020,7 +1026,7 @@ class ProcessorPipeline:
                 for i, inst in enumerate(instructions)
             }
 
-        with open("simulation.txt", "w") as simfile:
+        with open("simulation_check.txt", "w") as simfile:
             while True:
                 self.fetch_waiting = ""
                 self.fetch_executed = ""
@@ -1034,11 +1040,33 @@ class ProcessorPipeline:
                 self.write_back()
                 self.tick()
 
-                cycle_sim_output = self.output_state()
-                simfile.write(cycle_sim_output[1:])
+                stop_simulation = False
+                active_buffers = [
+                    self.pre_issue_prev,
+                    self.alu1_prev,
+                    self.memory_prev,
+                    self.alu2_prev,
+                    self.alu3_prev,
+                    self.post_alu2_prev,
+                    self.post_alu3_prev,
+                    self.post_memory_prev,
+                ]
 
                 if self.ended:
+                    cycle_sim_output = self.output_state()
+                    simfile.write(cycle_sim_output[1:])
+
+                    for buffer in active_buffers:
+                        if len(buffer) > 0:
+                            break
+                    else:
+                        stop_simulation = True
+
+                if stop_simulation:
                     break
+
+                cycle_sim_output = self.output_state()
+                simfile.write(cycle_sim_output[1:])
 
                 self.cycle += 1
 

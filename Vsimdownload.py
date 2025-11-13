@@ -72,7 +72,7 @@ class Category3Opcode(Enum):
     ANDI = "00001"
     ORI = "00010"
     SLL = "00011"
-    SRA = "00100"
+    SRAI = "00100"
     LW = "00101"
 
 
@@ -150,7 +150,7 @@ def instruction_decoder(instruction: str, address: int) -> dict[str, int | str |
         output_dict["rd"] = int(instruction[20:25], 2)
         output_dict["rs1"] = int(instruction[12:17], 2)
 
-        if opcode in [Category3Opcode.SLL.value, Category3Opcode.SRA.value]:
+        if opcode in [Category3Opcode.SLL.value, Category3Opcode.SRAI.value]:
             immediate = instruction[7:12]
             output_dict["immediate"] = int(immediate, 2)
         else:
@@ -599,7 +599,7 @@ class ProcessorPipeline:
             Category3Opcode.ANDI,
             Category3Opcode.ORI,
             Category3Opcode.SLL,
-            Category3Opcode.SRA,
+            Category3Opcode.SRAI,
         ]:
             operand_1 = instruction.get("rs1", None)
             operand_2 = instruction.get("rs2", None)
@@ -706,7 +706,7 @@ class ProcessorPipeline:
                     Category3Opcode.ANDI,
                     Category3Opcode.ORI,
                     Category3Opcode.SLL,
-                    Category3Opcode.SRA,
+                    Category3Opcode.SRAI,
                 ]:
                     if (
                         alu3_issue_count < MAX_ALU3_ISSUES_PER_CYCLE
@@ -817,7 +817,7 @@ class ProcessorPipeline:
             result = self.registers[instruction["rs1"]] << instruction["immediate"]
             instruction["result"] = result
 
-        elif instruction["operation"] == Category3Opcode.SRA:
+        elif instruction["operation"] == Category3Opcode.SRAI:
             result = self.registers[instruction["rs1"]] >> instruction["immediate"]
             instruction["result"] = result
 
@@ -848,13 +848,13 @@ class ProcessorPipeline:
                     "loaded_value"
                 ]
 
-        if len(self.post_alu2_prev) > 0:
+        elif len(self.post_alu2_prev) > 0:
             post_alu2_instruction = self.post_alu2_prev.pop(0)
             self.registers[post_alu2_instruction["rd"]] = post_alu2_instruction[
                 "result"
             ]
 
-        if len(self.post_alu3_prev) > 0:
+        elif len(self.post_alu3_prev) > 0:
             post_alu3_instruction = self.post_alu3_prev.pop(0)
             self.registers[post_alu3_instruction["rd"]] = post_alu3_instruction[
                 "result"
@@ -1026,6 +1026,11 @@ class ProcessorPipeline:
                 self.fetch_executed = ""
                 self.instruction_fetch()
 
+                if self.ended:
+                    cycle_sim_output = self.output_state()
+                    simfile.write(cycle_sim_output[1:])
+                    break
+
                 self.instruction_issue()
                 self.alu1_execute()
                 self.alu2_execute()
@@ -1036,9 +1041,6 @@ class ProcessorPipeline:
 
                 cycle_sim_output = self.output_state()
                 simfile.write(cycle_sim_output[1:])
-
-                if self.ended:
-                    break
 
                 self.cycle += 1
 
